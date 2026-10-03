@@ -3,7 +3,6 @@ use std::{pin::pin, time::Duration};
 use gloo_timers::future::TimeoutFuture;
 use snafu::{Location, prelude::*};
 use strum::EnumDiscriminants;
-use tokio::{io::AsyncWrite, sync::oneshot};
 use wasm_bindgen::prelude::*;
 use xwt_web::{
     Endpoint,
@@ -12,6 +11,8 @@ use xwt_web::{
         session::stream::{OpenBi, OpeningBi},
     },
 };
+
+use crate::rt::{io::AsyncWrite, sync::oneshot};
 
 #[derive(Snafu, Debug, EnumDiscriminants)]
 #[strum_discriminants(wasm_bindgen)]

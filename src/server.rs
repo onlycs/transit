@@ -1,23 +1,11 @@
 use std::{
-    collections::HashMap,
-    io::{self, Cursor},
-    mem,
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    time::Duration,
+    collections::HashMap, io::Cursor, mem, panic::AssertUnwindSafe, sync::Arc, time::Duration,
 };
 
 use futures_util::{FutureExt, future::BoxFuture};
 use rustls::server::{VerifierBuilderError, WebPkiClientVerifier};
 use snafu::{Location, ResultExt, Snafu};
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    net::{self, TcpListener},
-    sync::mpsc,
-    time::{self},
-};
-use tokio_rustls::TlsAcceptor;
-use tokio_util::{either::Either, sync::CancellationToken};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use wtransport::{Endpoint, error::ConnectionError, tls::WEBTRANSPORT_ALPN};
 
@@ -25,6 +13,14 @@ use crate::{
     InternalError, InternalSnafu, Route,
     frame::{self, MessageId, RouteId, frame_encode_thread},
     route::FromInternal,
+    rt::{
+        self,
+        io::{self, AsyncRead, AsyncWrite, Either},
+        mpsc,
+        net::{self, TcpListener},
+        time,
+        tls::TlsAcceptor,
+    },
 };
 
 #[derive(Snafu, Debug)]
@@ -275,8 +271,8 @@ where
     W: AsyncWrite + Unpin + Send + 'static,
 {
     let cancel = CancellationToken::new();
-    let (tx, rx) = mpsc::unbounded_channel();
-    tokio::spawn(frame_encode_thread(write, rx, cancel.clone()));
+    let (tx, rx) = mpsc::unbounded();
+    rt::spawn(frame_encode_thread(write, rx, cancel.clone()));
 
     loop {
         // {message id}{route id}{data bytes}
@@ -303,7 +299,7 @@ where
             break;
         }
 
-        tokio::spawn(async move {
+        rt::spawn(async move {
             let msgid = &fr[..frame::MSGID_LEN].try_into().unwrap();
             let route_id = &fr[frame::MSGID_LEN..routeid_end].try_into().unwrap();
             let data = &fr[routeid_end..];
@@ -331,7 +327,7 @@ where
                 }
             };
 
-            let Ok(_) = tx.send(buf) else {
+            let Ok(_) = tx.clone().send(buf) else {
                 warn!("Rx was dropped, closing connection.");
                 cancel.cancel();
                 return Ok(());
@@ -368,20 +364,20 @@ pub async fn listen_tcp_tls(
         let router = Arc::clone(&router);
         let acceptor = acceptor.clone();
 
-        tokio::spawn(async move {
+        rt::spawn(async move {
             let (read, write) = match acceptor {
                 Some(acceptor) => {
                     let tls = time::timeout(Duration::from_secs(10), acceptor.accept(stream))
                         .await
-                        .map_err(|_| io::Error::from(io::ErrorKind::TimedOut))
+                        .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))
                         .flatten()
                         .context(TlsSnafu)?;
 
-                    let (read, write) = tokio::io::split(tls);
+                    let (read, write) = io::split(tls);
                     (Either::Right(read), Either::Right(write))
                 }
                 None => {
-                    let (read, write) = tokio::io::split(stream);
+                    let (read, write) = io::split(stream);
                     (Either::Left(read), Either::Left(write))
                 }
             };
@@ -430,7 +426,7 @@ pub async fn listen_xwt(
         let router = Arc::clone(&router);
         let path = Arc::clone(&path);
 
-        tokio::spawn(async move {
+        rt::spawn(async move {
             let request = incoming.await.context(SessionSnafu)?;
             if request.path() != &*path {
                 request.not_found().await;

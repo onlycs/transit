@@ -5,14 +5,16 @@ use std::time::Duration;
 use std::{mem, sync::Arc};
 
 use snafu::{Location, ResultExt, Snafu};
-#[cfg(feature = "client")]
-use tokio::sync::Mutex;
-use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    sync::mpsc::UnboundedReceiver,
-};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
+
+#[cfg(feature = "client")]
+use crate::rt::sync::Mutex;
+use crate::rt::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    mpsc::UnboundedReceiver,
+    prelude::*,
+};
 
 pub const NOT_FOUND_BIT: u8 = 0x80;
 pub const MAX_FRAME_LEN: usize = 5 * 1024 * 1024; // 5 MiB is more than enough
@@ -209,7 +211,7 @@ pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
 ) {
     let job = async {
         loop {
-            let frame = match rx.recv().await {
+            let frame = match rx.recv().await.cast_option() {
                 Some(frame) => frame,
                 None => {
                     warn!("rx dropped, closing connection");

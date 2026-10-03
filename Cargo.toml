@@ -14,10 +14,11 @@ edition.workspace = true
 
 [features]
 default = []
-uniffi = ["dep:uniffi", "client"]
-client = ["dep:hex", "dep:rustls-platform-verifier", "transport"]
-server = ["dep:futures-util", "dep:wtransport", "transport"]
-transport = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "dep:strum"]
+uniffi = ["dep:uniffi", "client", "async-io"]
+client = ["dep:hex", "dep:rustls-platform-verifier", "dep:strum"]
+server = ["dep:futures-util", "dep:wtransport", "tokio"]
+async-io = ["dep:async-executor", "dep:async-io", "dep:async-lock", "dep:async-net", "dep:futures", "dep:futures-lite", "dep:futures-rustls"]
+tokio = ["dep:tokio", "dep:tokio-rustls"]
 nightly = ["snafu/unstable-provider-api"]
 
 [dependencies]
@@ -31,12 +32,22 @@ tracing = "0.1.44"
 transit-macros = { version = "0.1.0", path = "./transit-macros" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
-rustls = { version = "0.23.45", optional = true }
-rustls-pemfile = { version = "2.2.0", optional = true }
+async-executor = { version = "1.14.0", optional = true }
+async-io = { version = "2.6.0", optional = true }
+async-lock = { version = "3.4.2", optional = true }
+async-net = { version = "2.0.0", optional = true }
+futures = { version = "0.3.34", optional = true }
+futures-lite = { version = "2.6.1", optional = true }
+futures-rustls = { version = "0.26.0", optional = true }
+
+rustls = "0.23.45"
+rustls-pemfile = "2.2.0"
 rustls-platform-verifier = { version = "0.7.1", optional = true }
+
+tokio = { version = "1.53.1", features = ["sync", "rt", "time", "net", "io-util", "macros"], optional = true }
 tokio-rustls = { version = "0.26.5", optional = true }
+
 uniffi = { version = "=0.31.0", optional = true, features = ["cli"] }
-tokio = { version = "1.53.1", features = ["net", "sync", "rt", "io-util", "time"] }
 getrandom = "0.4.3"
 wtransport = { version = "0.7.2", optional = true, default-features = false, features = ["aws-lc-rs"] }
 

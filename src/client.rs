@@ -1,23 +1,22 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use snafu::{Location, prelude::*};
-use tokio::{
-    self,
-    sync::{
-        Mutex,
-        mpsc::{self, UnboundedSender, error::SendError},
-        oneshot::{self, error::RecvError},
-    },
-};
 use tokio_util::sync::CancellationToken;
 use transit_macros::core_error;
 #[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::*;
 
+#[cfg(feature = "async-io")]
+use crate::rt::prelude::*;
 use crate::{
     InternalError, Route,
     arch::{self, *},
     frame::{self, MessageId, RouteId},
+    rt::{
+        mpsc::{self, SendError, UnboundedSender},
+        oneshot::{self, RecvError},
+        sync::Mutex,
+    },
 };
 
 #[core_error]
@@ -59,7 +58,7 @@ pub enum RouteError {
 
     #[snafu(display("Send failed"))]
     Send {
-        source: SendError<Vec<u8>>,
+        source: SendError,
         #[snafu(implicit)]
         location: Location,
     },
@@ -124,10 +123,7 @@ impl TransitOptions {
 pub type Registry = HashMap<MessageId, oneshot::Sender<Option<Vec<u8>>>>;
 
 struct Connection {
-    _read: arch::JoinHandle<()>,
-    _write: arch::JoinHandle<()>,
     write_tx: UnboundedSender<Vec<u8>>,
-
     registry: Arc<Mutex<Registry>>,
     closed: CancellationToken,
 }
@@ -146,7 +142,16 @@ impl Connection {
             .closed
             .run_until_cancelled(async move {
                 self.registry.lock().await.insert(id, tx);
-                self.write_tx.send(buf).context(SendSnafu)?;
+
+                #[cfg(feature = "tokio")]
+                self.write_tx
+                    .send(buf)
+                    .map_err(SendError::from)
+                    .context(SendSnafu)?;
+
+                #[cfg(feature = "async-io")]
+                self.write_tx.clone().send(buf).await.context(SendSnafu)?;
+
                 rx.await.context(TxSnafu) // this is generally what is waited on, but wrap everything
             })
             .await
@@ -204,21 +209,18 @@ async fn _connect(options: &TransitOptions) -> Result<Connection, ConnectError> 
     let registry = Arc::new(Mutex::new(Registry::default()));
     let notify = CancellationToken::default();
     let (read, write) = arch::connect(&options.connect).await?;
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx) = mpsc::unbounded();
 
-    let rt = arch::spawn(frame::pframe_deocde_thread(
+    arch::spawn(frame::pframe_deocde_thread(
         read,
         Arc::clone(&registry),
         notify.clone(),
     ));
 
-    let wt = arch::spawn(frame::frame_encode_thread(write, rx, notify.clone()));
+    arch::spawn(frame::frame_encode_thread(write, rx, notify.clone()));
 
     Ok(Connection {
-        _read: rt,
-        _write: wt,
         write_tx: tx,
-
         registry,
         closed: notify,
     })

@@ -1,19 +1,15 @@
-use std::{io::Cursor, sync::Arc, time::Duration};
+use std::{io::Cursor, sync::Arc};
 
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use rustls_platform_verifier::BuilderVerifierExt;
 use snafu::{Location, prelude::*};
-use tokio::{
-    io::{ReadHalf, WriteHalf},
-    net::{
-        TcpStream,
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-    },
-    time,
-};
-use tokio_rustls::{TlsConnector, TlsStream};
-use tokio_util::either::Either;
 use transit_macros::core_error;
+
+use crate::rt::{
+    io::{self, Either, ReadHalf, WriteHalf},
+    net::TcpStream,
+    tls::{TlsConnector, client::TlsStream},
+};
 
 #[core_error]
 pub enum ConnectError {
@@ -65,8 +61,8 @@ pub enum ConnectError {
     },
 }
 
-pub type Reader = Either<OwnedReadHalf, ReadHalf<TlsStream<TcpStream>>>;
-pub type Writer = Either<OwnedWriteHalf, WriteHalf<TlsStream<TcpStream>>>;
+pub type Reader = Either<ReadHalf<TlsStream<TcpStream>>, ReadHalf<TcpStream>>;
+pub type Writer = Either<WriteHalf<TlsStream<TcpStream>>, WriteHalf<TcpStream>>;
 
 #[derive(Clone)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
@@ -120,27 +116,15 @@ pub(super) async fn connect(
         let tls = connector
             .connect(server_name.to_owned(), raw)
             .await
-            .context(RustlsConnectSnafu { addr, port })?
-            .into();
+            .context(RustlsConnectSnafu { addr, port })?;
 
-        let (read, write) = tokio::io::split(tls);
-        Ok((Either::Right(read), Either::Right(write)))
-    } else {
-        let (read, write) = raw.into_split();
+        let (read, write) = io::split(tls);
+
         Ok((Either::Left(read), Either::Left(write)))
+    } else {
+        let (read, write) = io::split(raw);
+        Ok((Either::Right(read), Either::Right(write)))
     }
 }
 
-pub type JoinHandle<T> = tokio::task::JoinHandle<T>;
-
-pub fn spawn<F>(future: F) -> JoinHandle<F::Output>
-where
-    F: Future + Send + Sync + 'static,
-    F::Output: Send + Sync + 'static,
-{
-    tokio::spawn(future)
-}
-
-pub async fn timeout<F: Future>(duration: Duration, future: F) -> Option<F::Output> {
-    time::timeout(duration, future).await.ok()
-}
+pub use crate::rt::{spawn, time::timeout};

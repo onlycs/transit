@@ -1,11 +1,23 @@
 #![allow(clippy::expect_fun_call)]
-#![cfg_attr(feature = "nightly", feature(unstable_provider_api))]
+#![cfg_attr(feature = "nightly", feature(error_generic_member_access))]
+
+#[cfg(not(any(feature = "client", feature = "server")))]
+compile_error!("must enable either `client` or `server` feature");
+
+#[cfg(not(any(feature = "async-io", feature = "tokio")))]
+compile_error!("must enable either `async-io` or `tokio` feature");
+
+#[cfg(all(feature = "async-io", feature = "tokio"))]
+compile_error!("cannot enable both `async-io` and `tokio` features");
 
 #[cfg(all(target_family = "wasm", feature = "uniffi"))]
-compile_error!("`wasm32` is not compatible with `uniffi`");
+compile_error!("wasm is not compatible with `uniffi`");
 
 #[cfg(all(target_family = "wasm", feature = "server"))]
-compile_error!("`wasm32` is not compatible with `server`");
+compile_error!("wasm is not compatible with `server`");
+
+#[cfg(all(target_family = "wasm", feature = "async-io"))]
+compile_error!("wasm is not compatible with `async-io`");
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!("transit_core");
@@ -27,6 +39,7 @@ pub mod wbg_util;
 pub mod error;
 pub mod frame;
 pub mod route;
+mod rt;
 
 pub use error::{InternalError, InternalSnafu};
 pub use route::Route;
