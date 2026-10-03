@@ -1,0 +1,54 @@
+[workspace]
+resolver = "3"
+members = [".", "transit-macros"]
+exclude = ["examples/idp-proto"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[package]
+name = "transit-core"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+uniffi = ["dep:uniffi", "client"]
+client = ["dep:hex", "dep:rustls-platform-verifier", "transport"]
+server = ["dep:futures-util", "dep:wtransport", "transport"]
+transport = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "dep:strum"]
+nightly = ["snafu/unstable-provider-api"]
+
+[dependencies]
+bitcode = "0.6.9"
+futures-util = { version = "0.3.34", optional = true }
+hex = { version = "0.4.3", optional = true }
+snafu = "0.9.2"
+strum = { version = "0.28.0", features = ["derive"], optional = true }
+tokio-util = "0.7.19"
+tracing = "0.1.44"
+transit-macros = { version = "0.1.0", path = "./transit-macros" }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+rustls = { version = "0.23.45", optional = true }
+rustls-pemfile = { version = "2.2.0", optional = true }
+rustls-platform-verifier = { version = "0.7.1", optional = true }
+tokio-rustls = { version = "0.26.5", optional = true }
+uniffi = { version = "=0.31.0", optional = true, features = ["cli"] }
+tokio = { version = "1.53.1", features = ["net", "sync", "rt", "io-util", "time"] }
+getrandom = "0.4.3"
+wtransport = { version = "0.7.2", optional = true, default-features = false, features = ["aws-lc-rs"] }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+gloo-timers = { version = "0.4.0", features = ["futures"] }
+js-sys = "0.3.105"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = { version = "0.6.5" }
+tokio = { version = "1.53.1", features = ["sync", "io-util", "macros"] }
+tsify = { version = "0.5.8", default-features = false, features = ["js"] }
+xwt-core = "0.10.0"
+xwt-web = "0.22.1"
+wasm-bindgen = { version = "0.2.128" }
+wasm-bindgen-futures = { version = "0.4.78" }
