@@ -46,17 +46,30 @@ pub use route::Route;
 pub use transit_macros::{error, error_shard, oneof, record, route};
 
 #[cfg(feature = "uniffi")]
+#[derive(uniffi::Enum)]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+#[cfg(feature = "uniffi")]
 #[uniffi::export]
-pub fn begin_logging() {
+pub fn begin_logging(level: LogLevel) {
     use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
-    #[cfg(debug_assertions)]
-    const LOG_LEVEL: tracing::Level = tracing::Level::DEBUG;
-    #[cfg(not(debug_assertions))]
-    const LOG_LEVEL: tracing::Level = tracing::Level::INFO;
+    let level = match level {
+        LogLevel::Trace => tracing::Level::TRACE,
+        LogLevel::Debug => tracing::Level::DEBUG,
+        LogLevel::Info => tracing::Level::INFO,
+        LogLevel::Warn => tracing::Level::WARN,
+        LogLevel::Error => tracing::Level::ERROR,
+    };
 
     let fmt = tracing_subscriber::fmt::layer().pretty();
-    let filter = Targets::new().with_default(LOG_LEVEL);
+    let filter = Targets::new().with_default(level);
 
     tracing_subscriber::registry().with(filter).with(fmt).init();
 }
