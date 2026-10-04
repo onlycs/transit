@@ -121,6 +121,16 @@ impl TransitOptions {
     }
 }
 
+impl TransitOptions {
+    pub fn request_timeout(&self) -> Duration {
+        if self.timeout_ms == 0 {
+            return Duration::from_secs(60); // go and some other langs dont support default
+        }
+
+        Duration::from_millis(self.timeout_ms)
+    }
+}
+
 pub type Registry = HashMap<MessageId, oneshot::Sender<Option<Vec<u8>>>>;
 
 struct Connection {
@@ -197,7 +207,7 @@ impl Transit {
     pub async fn route<R: Route>(&self, q: R::Request) -> Result<R::Response, RouteError> {
         let conn = self.connection().await?;
         let id = frame::gen_msgid().context(FrameSnafu)?;
-        let timeout = Duration::from_millis(self.options.timeout_ms);
+        let timeout = self.options.request_timeout();
 
         match arch::timeout(timeout, conn.route::<R>(q, id))
             .await
@@ -207,11 +217,9 @@ impl Transit {
             Ok(data) => Ok(data),
             Err(err) => {
                 match err {
-                    RouteError::Timeout { .. } => warn!(
-                        msgid = hex::encode(id),
-                        timeout_ms = self.options.timeout_ms,
-                        "Request timed out"
-                    ),
+                    RouteError::Timeout { .. } => {
+                        warn!(msgid = hex::encode(id), ?timeout, "Request timed out")
+                    }
                     _ => debug!(msgid = hex::encode(id), %err, "Request failed"),
                 }
 
