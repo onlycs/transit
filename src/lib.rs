@@ -44,3 +44,19 @@ mod rt;
 pub use error::{InternalError, InternalSnafu};
 pub use route::Route;
 pub use transit_macros::{error, error_shard, oneof, record, route};
+
+#[cfg(feature = "uniffi")]
+#[uniffi::export]
+pub fn begin_logging() {
+    use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
+
+    #[cfg(debug_assertions)]
+    const LOG_LEVEL: tracing::Level = tracing::Level::DEBUG;
+    #[cfg(not(debug_assertions))]
+    const LOG_LEVEL: tracing::Level = tracing::Level::INFO;
+
+    let fmt = tracing_subscriber::fmt::layer().pretty();
+    let filter = Targets::new().with_default(LOG_LEVEL);
+
+    tracing_subscriber::registry().with(filter).with(fmt).init();
+}

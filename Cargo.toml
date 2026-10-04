@@ -14,7 +14,7 @@ edition.workspace = true
 
 [features]
 default = []
-uniffi = ["dep:uniffi", "client", "async-io"]
+uniffi = ["dep:uniffi", "client", "async-io", "dep:tracing-subscriber"]
 client = ["dep:rustls-platform-verifier", "dep:strum"]
 server = ["dep:futures-util", "dep:wtransport", "tokio"]
 async-io = ["dep:async-executor", "dep:async-io", "dep:async-lock", "dep:async-net", "dep:futures", "dep:futures-lite", "dep:futures-rustls"]
@@ -29,6 +29,7 @@ snafu = "0.9.2"
 strum = { version = "0.28.0", features = ["derive"], optional = true }
 tokio-util = "0.7.19"
 tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", optional = true }
 transit-macros = { version = "0.1.0", path = "./transit-macros" }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

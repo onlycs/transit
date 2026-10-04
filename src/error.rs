@@ -5,9 +5,12 @@ use snafu::IntoError;
 mod private {
     use snafu::NoneError;
     use transit_macros::error_shard;
+    #[cfg(target_family = "wasm")]
+    use wasm_bindgen::prelude::wasm_bindgen;
 
     #[error_shard("Internal error: {message}")]
     #[snafu(module)]
+    #[cfg_attr(target_family = "wasm", wasm_bindgen(getter_with_clone))]
     pub struct InternalError {
         pub message: String,
     }
