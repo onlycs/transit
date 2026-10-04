@@ -12,7 +12,6 @@ use wtransport::{Endpoint, error::ConnectionError, tls::WEBTRANSPORT_ALPN};
 use crate::{
     InternalError, InternalSnafu, Route,
     frame::{self, MessageId, RouteId, frame_encode_thread},
-    route::FromInternal,
     rt::{
         self,
         io::{self, AsyncRead, AsyncWrite, Either},
@@ -147,14 +146,23 @@ pub struct XwtListenOptions {
 
 #[derive(Clone, Copy)]
 struct FnErased(*const ());
-type FnRunner = for<'a> fn(&'a [u8], FnErased) -> BoxFuture<'a, Result<Vec<u8>, InternalError>>;
-type FnEncodeInternal = for<'a> fn(InternalError) -> Vec<u8>;
 
 // SAFETY: FnErased should be a function pointer without a type
 // function pointers are always safe to send and sync
 unsafe impl Send for FnErased {}
 unsafe impl Sync for FnErased {}
 
+struct StateErased(*const ());
+
+// SAFETY: `S` is bounded by Send+Sync inside the struct
+unsafe impl Send for StateErased {}
+unsafe impl Sync for StateErased {}
+
+type FnRunnerResponse<'a> = BoxFuture<'a, Result<Vec<u8>, InternalError>>;
+type FnRunner = for<'a> fn(&'a [u8], FnErased, StateErased) -> FnRunnerResponse<'a>;
+type FnEncodeInternal = fn(InternalError) -> Vec<u8>;
+
+/// I refuse to deal with dyn Fn objects, sue me.
 #[derive(Clone, Copy)]
 pub struct RouteThunk {
     erased: FnErased,
@@ -163,23 +171,58 @@ pub struct RouteThunk {
 }
 
 #[derive(Default)]
-pub struct Router {
+pub struct Router<S: Send + Sync + 'static> {
+    state: Arc<S>,
     routes: HashMap<RouteId, RouteThunk>,
 }
 
-impl Router {
-    pub fn new() -> Self {
-        Self::default()
+impl<S: Send + Sync + 'static> Router<S> {
+    pub fn new(state: S) -> Router<S> {
+        Self {
+            state: Arc::new(state),
+            routes: HashMap::new(),
+        }
+    }
+
+    pub fn stateless() -> Router<()> {
+        Router::new(())
     }
 
     pub fn route<R: Route, F: Future<Output = R::Response> + Send + Sync + 'static>(
+        mut self,
+        handler: fn(R::Request, Arc<S>) -> F,
+    ) -> Self {
+        self.routes.insert(
+            R::ID,
+            RouteThunk {
+                runner: |bytes, FnErased(erased), StateErased(state)| {
+                    let handler: fn(R::Request, Arc<S>) -> F = unsafe { mem::transmute(erased) };
+                    let state: Arc<S> = unsafe { Arc::from_raw(state as *const S) };
+
+                    Box::pin(async move {
+                        let req: R::Request = bitcode::decode(bytes).context(InternalSnafu)?;
+                        let res = handler(req, state).await;
+                        Ok(bitcode::encode(&res))
+                    })
+                },
+                internal: |error| {
+                    bitcode::encode(&<R::Response as From<InternalError>>::from(error))
+                },
+                erased: FnErased(handler as *const ()),
+            },
+        );
+
+        self
+    }
+
+    pub fn route_stateless<R: Route, F: Future<Output = R::Response> + Send + Sync + 'static>(
         mut self,
         handler: fn(R::Request) -> F,
     ) -> Self {
         self.routes.insert(
             R::ID,
             RouteThunk {
-                runner: |bytes, FnErased(erased)| {
+                runner: |bytes, FnErased(erased), _| {
                     let handler: fn(R::Request) -> F = unsafe { mem::transmute(erased) };
 
                     Box::pin(async move {
@@ -189,7 +232,7 @@ impl Router {
                     })
                 },
                 internal: |error| {
-                    bitcode::encode(&<R::Response as FromInternal>::from_internal(error))
+                    bitcode::encode(&<R::Response as From<InternalError>>::from(error))
                 },
                 erased: FnErased(handler as *const ()),
             },
@@ -210,7 +253,13 @@ impl Router {
             runner,
         } = *self.routes.get(&route_id)?;
 
-        let res = AssertUnwindSafe(runner(data, erased)).catch_unwind().await;
+        let state = Arc::into_raw(Arc::clone(&self.state));
+        let state = StateErased(state as *const ());
+
+        let res = AssertUnwindSafe(runner(data, erased, state))
+            .catch_unwind()
+            .await;
+
         let bytes = match res {
             Ok(Ok(bytes)) if bytes.len() + mem::size_of::<MessageId>() <= frame::MAX_FRAME_LEN => {
                 bytes
@@ -265,10 +314,11 @@ fn server_tls_config(tls: &ServerTls) -> Result<rustls::ServerConfig, ListenErro
     Ok(config)
 }
 
-async fn serve<R, W>(mut read: R, write: W, router: Arc<Router>)
+async fn serve<R, W, S>(mut read: R, write: W, router: Arc<Router<S>>)
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin + Send + 'static,
+    S: Send + Sync + 'static,
 {
     let cancel = CancellationToken::new();
     let (tx, rx) = mpsc::unbounded();
@@ -338,10 +388,13 @@ where
     }
 }
 
-pub async fn listen_tcp_tls(
+pub async fn listen_tcp_tls<S>(
     TcpListenOptions { addr, port, tls }: TcpListenOptions,
-    router: Arc<Router>,
-) -> Result<(), ListenError> {
+    router: Arc<Router<S>>,
+) -> Result<(), ListenError>
+where
+    S: Send + Sync + 'static,
+{
     let listener = TcpListener::bind((addr.as_str(), port))
         .await
         .context(BindSnafu { addr, port })?;
@@ -389,15 +442,18 @@ pub async fn listen_tcp_tls(
     }
 }
 
-pub async fn listen_xwt(
+pub async fn listen_xwt<S>(
     XwtListenOptions {
         addr,
         port,
         path,
         tls,
     }: XwtListenOptions,
-    router: Arc<Router>,
-) -> Result<(), ListenError> {
+    router: Arc<Router<S>>,
+) -> Result<(), ListenError>
+where
+    S: Send + Sync + 'static,
+{
     let bind = net::lookup_host((addr.as_str(), port))
         .await
         .and_then(|mut addrs| {

@@ -6,8 +6,8 @@
           "command": "clippy",
         },
         "cargo": {
-          "features": ["client", "tokio"],
-          "target": "wasm32-unknown-unknown",
+          "features": ["server", "tokio"],
+          // "target": "wasm32-unknown-unknown",
         },
       },
     },
