@@ -6,7 +6,7 @@
           "command": "clippy",
         },
         "cargo": {
-          "features": ["client", "uniffi"],
+          "features": ["server", "tokio"],
           // "target": "wasm32-unknown-unknown",
         },
       },

@@ -144,6 +144,15 @@ mod rt_async_io {
 
     fn executor() -> &'static async_executor::Executor<'static> {
         static EXECUTOR: async_executor::Executor = async_executor::Executor::new();
+        static DRIVER: std::sync::Once = std::sync::Once::new();
+
+        DRIVER.call_once(|| {
+            std::thread::Builder::new()
+                .name("transit-executor".into())
+                .spawn(|| async_io::block_on(EXECUTOR.run(std::future::pending::<()>())))
+                .expect("failed to spawn transit executor thread");
+        });
+
         &EXECUTOR
     }
 
