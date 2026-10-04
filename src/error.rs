@@ -64,8 +64,8 @@ where
         let source: Box<dyn Error + Send + Sync> = source.into();
 
         warn!(
-            "At {}: Returning an internal error: {source}. Full report:\n{}",
-            std::panic::Location::caller(),
+            at = %std::panic::Location::caller(),
+            "Returning an internal error. Full report:\n{}",
             snafu::Report::from_error(&*source).to_string()
         );
 
@@ -91,8 +91,9 @@ where
         };
 
         warn!(
-            "At {}: Returning an internal error: {message}. Full report:\n{}",
-            std::panic::Location::caller(),
+            at = %std::panic::Location::caller(),
+            reason = message,
+            "Returning an internal error. Full report:\n{}",
             snafu::Report::from_error(&*source).to_string()
         );
 
@@ -114,8 +115,9 @@ where
         };
 
         warn!(
-            "At {}: Returning an internal error: {message}. Full report:\n{source}",
-            std::panic::Location::caller()
+            at = %std::panic::Location::caller(),
+            reason = message,
+            "Returning an internal error. Full report:\n{source}"
         );
 
         InternalError { message }

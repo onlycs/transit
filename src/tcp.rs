@@ -3,6 +3,7 @@ use std::{io::Cursor, sync::Arc};
 use rustls::{ClientConfig, RootCertStore, pki_types::ServerName};
 use rustls_platform_verifier::BuilderVerifierExt;
 use snafu::{Location, prelude::*};
+use tracing::{debug, info, trace};
 use transit_macros::core_error;
 
 use crate::rt::{
@@ -84,11 +85,15 @@ pub(super) async fn connect(
 ) -> Result<(Reader, Writer), ConnectError> {
     let port = *port;
 
+    debug!(addr, port, tls = crt.is_some(), "Connecting");
+
     let raw = TcpStream::connect(format!("{addr}:{port}"))
         .await
         .context(TcpStreamConnectSnafu { addr, port })?;
 
     if let Some(tls) = crt {
+        trace!("TCP connected, starting TLS handshake");
+
         let config = match tls {
             Tls::Bytes(crt) => {
                 let mut ca = Cursor::new(crt);
@@ -100,14 +105,20 @@ pub(super) async fn connect(
                         .context(RootCertAddSnafu)?;
                 }
 
+                debug!(count = roots.len(), "Using custom root certificates");
+
                 ClientConfig::builder()
                     .with_root_certificates(roots)
                     .with_no_client_auth()
             }
-            Tls::Internal => ClientConfig::builder()
-                .with_platform_verifier()
-                .context(PlatformVerifierSnafu)?
-                .with_no_client_auth(),
+            Tls::Internal => {
+                debug!("Using platform certificate verifier");
+
+                ClientConfig::builder()
+                    .with_platform_verifier()
+                    .context(PlatformVerifierSnafu)?
+                    .with_no_client_auth()
+            }
         };
 
         let connector = TlsConnector::from(Arc::new(config));
@@ -118,10 +129,12 @@ pub(super) async fn connect(
             .await
             .context(RustlsConnectSnafu { addr, port })?;
 
+        info!(addr, port, tls = true, "Connected");
         let (read, write) = io::split(tls);
 
         Ok((Either::Left(read), Either::Left(write)))
     } else {
+        info!(addr, port, tls = false, "Connected");
         let (read, write) = io::split(raw);
         Ok((Either::Right(read), Either::Right(write)))
     }

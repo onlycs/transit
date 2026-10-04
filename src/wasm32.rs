@@ -3,6 +3,7 @@ use std::{pin::pin, time::Duration};
 use gloo_timers::future::TimeoutFuture;
 use snafu::{Location, prelude::*};
 use strum::EnumDiscriminants;
+use tracing::{debug, info, trace};
 use wasm_bindgen::prelude::*;
 use xwt_web::{
     Endpoint,
@@ -144,6 +145,7 @@ pub(super) async fn connect(
 ) -> Result<(Reader, Writer), ConnectError> {
     async fn inner(addr: &String, path: &String) -> Result<(Reader, Writer), ConnectErrorInner> {
         let url = format!("https://{addr}/{path}");
+        debug!(url, "Connecting");
 
         let endpoint = Endpoint::default();
 
@@ -156,9 +158,11 @@ pub(super) async fn connect(
             .wait_connect()
             .await
             .context(SessionSnafu { url: &url })?;
+        trace!("Session established, opening stream");
 
         let opening = session.open_bi().await.context(StreamSnafu { url: &url })?;
         let (send, recv) = opening.wait_bi().await.unwrap_or_else(|e| match e {});
+        info!(url, "Connected");
 
         Ok((
             recv,

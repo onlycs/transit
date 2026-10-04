@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use snafu::{Location, prelude::*};
 use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, trace, warn};
 use transit_macros::core_error;
 #[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::*;
@@ -138,6 +139,12 @@ impl Connection {
         let buf = frame::qframe_encode(id, R::ID, data).context(FrameSnafu)?;
         let (tx, rx) = oneshot::channel();
 
+        trace!(
+            msgid = hex::encode(id),
+            route = hex::encode(R::ID.to_le_bytes()),
+            "Sending request"
+        );
+
         let res = self
             .closed
             .run_until_cancelled(async move {
@@ -180,6 +187,7 @@ impl Transit {
         let mut conn = self.connection.lock().await;
 
         if conn.closed.is_cancelled() {
+            info!("Connection closed, reconnecting");
             *conn = Arc::new(_connect(&self.options).await.context(ConnectSnafu)?);
         }
 
@@ -198,6 +206,15 @@ impl Transit {
         {
             Ok(data) => Ok(data),
             Err(err) => {
+                match err {
+                    RouteError::Timeout { .. } => warn!(
+                        msgid = hex::encode(id),
+                        timeout_ms = self.options.timeout_ms,
+                        "Request timed out"
+                    ),
+                    _ => debug!(msgid = hex::encode(id), %err, "Request failed"),
+                }
+
                 conn.drop_tx(id).await;
                 Err(err)
             }
@@ -218,6 +235,7 @@ async fn _connect(options: &TransitOptions) -> Result<Connection, ConnectError> 
     ));
 
     arch::spawn(frame::frame_encode_thread(write, rx, notify.clone()));
+    debug!("Connection established");
 
     Ok(Connection {
         write_tx: tx,

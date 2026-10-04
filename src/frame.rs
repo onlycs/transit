@@ -6,7 +6,7 @@ use std::{mem, sync::Arc};
 
 use snafu::{Location, ResultExt, Snafu};
 use tokio_util::sync::CancellationToken;
-use tracing::warn;
+use tracing::{debug, trace, warn};
 
 #[cfg(feature = "client")]
 use crate::rt::sync::Mutex;
@@ -81,6 +81,7 @@ pub(super) async fn frame_decode<R: AsyncRead + Unpin>(
     reader.read_exact(&mut len_buf).await.context(ReadSnafu)?;
 
     let len = FrameLen::from_le_bytes(len_buf) as usize;
+    trace!(len, "Reading frame");
     if len > MAX_FRAME_LEN {
         return Err(FrameTooLongSnafu {
             size: len as f32 / 1024f32 / 1024f32,
@@ -102,6 +103,7 @@ pub(super) fn qframe_encode(
     data: Vec<u8>,
 ) -> Result<Vec<u8>, FrameError> {
     let len = msgid.len() + mem::size_of_val(&route) + data.len();
+    trace!(len, msgid = hex::encode(msgid), "Encoding request frame");
     if len > MAX_FRAME_LEN {
         return Err(FrameTooLongSnafu {
             size: len as f32 / 1024f32 / 1024f32,
@@ -125,6 +127,7 @@ pub(super) fn qframe_encode(
 pub(super) fn pframe_encode(msgid: &MessageId, data: &[u8]) -> Result<Vec<u8>, FrameError> {
     let len = msgid.len() + data.len();
     let len_bytes = (len as FrameLen).to_le_bytes();
+    trace!(len, msgid = hex::encode(msgid), "Encoding response frame");
 
     if len > MAX_FRAME_LEN {
         return Err(FrameTooLongSnafu {
@@ -157,6 +160,8 @@ pub(super) async fn pframe_deocde_thread<R: AsyncRead + Unpin + 'static>(
     tx: Arc<Mutex<client::Registry>>,
     notify: CancellationToken,
 ) {
+    debug!("Frame decode thread started");
+
     let job = async {
         loop {
             let frame = match frame_decode(&mut reader).await {
@@ -182,17 +187,20 @@ pub(super) async fn pframe_deocde_thread<R: AsyncRead + Unpin + 'static>(
                 0 => Some(frame[MSGID_LEN..].to_vec()),
                 _ => {
                     msgid[0] &= !NOT_FOUND_BIT;
+                    debug!(msgid = hex::encode(msgid), "Route not found");
                     None
                 }
             };
 
             let Some(tx) = tx.remove(&msgid) else {
-                warn!("Unknown message id {}, ignoring", hex::encode(msgid));
+                warn!(msgid = hex::encode(msgid), "Unknown message id, ignoring");
                 continue;
             };
 
+            trace!(msgid = hex::encode(msgid), "Received response");
+
             let Ok(_) = tx.send(res) else {
-                warn!("rx dropped for message {}, ignoring", hex::encode(msgid));
+                warn!(msgid = hex::encode(msgid), "rx dropped, ignoring");
                 continue;
             };
         }
@@ -209,6 +217,8 @@ pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
     mut rx: UnboundedReceiver<Vec<u8>>,
     notify: CancellationToken,
 ) {
+    debug!("Frame encode thread started");
+
     let job = async {
         loop {
             let frame = match rx.recv().await.cast_option() {
@@ -231,9 +241,14 @@ pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
             let timeout = async |a, b| tokio::time::timeout(a, b).await.ok();
 
             match timeout(Duration::from_secs(30), writer.write_all(&frame)).await {
-                Some(Ok(_)) => {}
-                _ => {
-                    warn!("Error writing frame, closing connection");
+                Some(Ok(_)) => trace!(len = frame.len(), "Wrote frame"),
+                Some(Err(err)) => {
+                    warn!(%err, "Error writing frame, closing connection");
+                    notify.cancel();
+                    return;
+                }
+                None => {
+                    warn!("Timed out writing frame, closing connection");
                     notify.cancel();
                     return;
                 }
