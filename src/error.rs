@@ -3,12 +3,25 @@ use std::error::Error;
 use snafu::{ErrorCompat, IntoError};
 
 mod private {
+    use snafu::NoneError;
     use transit_macros::error_shard;
 
     #[error_shard("Internal error: {message}")]
     #[snafu(module)]
     pub struct InternalError {
         pub message: String,
+    }
+
+    impl snafu::FromString for InternalError {
+        type Source = NoneError;
+
+        fn with_source(_: Self::Source, message: String) -> Self {
+            Self { message }
+        }
+
+        fn without_source(message: String) -> Self {
+            Self { message }
+        }
     }
 
     pub enum InternalErrorCtx<E> {

@@ -12,6 +12,7 @@ use wtransport::{Endpoint, error::ConnectionError, tls::WEBTRANSPORT_ALPN};
 use crate::{
     InternalError, InternalSnafu, Route,
     frame::{self, MessageId, RouteId, frame_encode_thread},
+    route::FromInternal,
     rt::{
         self,
         io::{self, AsyncRead, AsyncWrite, Either},
@@ -206,7 +207,7 @@ impl<S: Send + Sync + 'static> Router<S> {
                     })
                 },
                 internal: |error| {
-                    bitcode::encode(&<R::Response as From<InternalError>>::from(error))
+                    bitcode::encode(&<R::Response as FromInternal>::from_internal(error))
                 },
                 erased: FnErased(handler as *const ()),
             },
@@ -232,7 +233,7 @@ impl<S: Send + Sync + 'static> Router<S> {
                     })
                 },
                 internal: |error| {
-                    bitcode::encode(&<R::Response as From<InternalError>>::from(error))
+                    bitcode::encode(&<R::Response as FromInternal>::from_internal(error))
                 },
                 erased: FnErased(handler as *const ()),
             },
