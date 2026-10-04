@@ -6,6 +6,7 @@ use syn::{
     Token,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
+    spanned::Spanned,
 };
 
 #[proc_macro_attribute]
@@ -135,7 +136,13 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 let lit = inner.parse()?;
 
                 let fields = if input.peek(syn::token::Brace) {
-                    Some(input.parse()?)
+                    let mut f = input.parse::<syn::FieldsNamed>()?;
+
+                    f.named
+                        .iter_mut()
+                        .for_each(|f| f.vis = syn::Visibility::Public(Token![pub](f.span())));
+
+                    Some(f)
                 } else {
                     None
                 };
