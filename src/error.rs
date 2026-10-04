@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use snafu::{ErrorCompat, IntoError};
+use snafu::IntoError;
 
 mod private {
     use snafu::NoneError;
@@ -53,15 +53,14 @@ pub use private::{
 };
 use tracing::warn;
 
-impl<T, E> IntoError<T> for private::InternalErrorCtx<E>
+impl<E> IntoError<InternalError> for private::InternalErrorCtx<E>
 where
-    T: From<InternalError> + ErrorCompat + Error,
     E: Into<Box<dyn Error + Send + Sync>>,
 {
     type Source = E;
 
     #[track_caller]
-    fn into_error(self, source: E) -> T {
+    fn into_error(self, source: E) -> InternalError {
         let source: Box<dyn Error + Send + Sync> = source.into();
 
         warn!(
@@ -70,21 +69,20 @@ where
             snafu::Report::from_error(&*source).to_string()
         );
 
-        T::from(InternalError {
+        InternalError {
             message: source.to_string(),
-        })
+        }
     }
 }
 
-impl<T, S: AsRef<str>, E> IntoError<T> for private::InternalErrorMessageViaErrorCtx<S, E>
+impl<S: AsRef<str>, E> IntoError<InternalError> for private::InternalErrorMessageViaErrorCtx<S, E>
 where
-    T: From<InternalError> + ErrorCompat + Error,
     E: Into<Box<dyn Error + Send + Sync>>,
 {
     type Source = E;
 
     #[track_caller]
-    fn into_error(self, source: E) -> T {
+    fn into_error(self, source: E) -> InternalError {
         let source: Box<dyn Error + Send + Sync> = source.into();
 
         let message = match self {
@@ -98,19 +96,18 @@ where
             snafu::Report::from_error(&*source).to_string()
         );
 
-        T::from(InternalError { message })
+        InternalError { message }
     }
 }
 
-impl<T, S: AsRef<str>, E> IntoError<T> for private::InternalErrorMessageViaDisplayCtx<S, E>
+impl<S: AsRef<str>, E> IntoError<InternalError> for private::InternalErrorMessageViaDisplayCtx<S, E>
 where
-    T: From<InternalError> + ErrorCompat + Error,
     E: fmt::Display,
 {
     type Source = E;
 
     #[track_caller]
-    fn into_error(self, source: E) -> T {
+    fn into_error(self, source: E) -> InternalError {
         let message = match self {
             Self::_InternalErrorMessageViaDisplay(s) => s.as_ref().to_string(),
             Self::__Phantom(never, _) => match never {},
@@ -121,7 +118,7 @@ where
             std::panic::Location::caller()
         );
 
-        T::from(InternalError { message })
+        InternalError { message }
     }
 }
 
