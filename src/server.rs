@@ -131,15 +131,15 @@ pub struct ServerTls {
 }
 
 #[derive(Clone)]
-pub struct TcpListenOptions {
-    pub addr: String,
+pub struct TcpListenOptions<S: AsRef<str>> {
+    pub addr: S,
     pub port: u16,
     pub tls: Option<ServerTls>,
 }
 
 #[derive(Clone)]
-pub struct XwtListenOptions {
-    pub addr: String,
+pub struct XwtListenOptions<S: AsRef<str>> {
+    pub addr: S,
     pub port: u16,
     pub path: String,
     pub tls: ServerTls,
@@ -389,16 +389,19 @@ where
     }
 }
 
-pub async fn listen_tcp_tls<S>(
-    TcpListenOptions { addr, port, tls }: TcpListenOptions,
-    router: Arc<Router<S>>,
+pub async fn listen_tcp_tls<T, S: AsRef<str>>(
+    TcpListenOptions { addr, port, tls }: TcpListenOptions<S>,
+    router: Arc<Router<T>>,
 ) -> Result<(), ListenError>
 where
-    S: Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
-    let listener = TcpListener::bind((addr.as_str(), port))
+    let listener = TcpListener::bind((addr.as_ref(), port))
         .await
-        .context(BindSnafu { addr, port })?;
+        .context(BindSnafu {
+            addr: addr.as_ref(),
+            port,
+        })?;
 
     let acceptor = match tls {
         Some(tls) => Some(TlsAcceptor::from(Arc::new(server_tls_config(&tls)?))),
@@ -443,19 +446,19 @@ where
     }
 }
 
-pub async fn listen_xwt<S>(
+pub async fn listen_xwt<T, S: AsRef<str>>(
     XwtListenOptions {
         addr,
         port,
         path,
         tls,
-    }: XwtListenOptions,
-    router: Arc<Router<S>>,
+    }: XwtListenOptions<S>,
+    router: Arc<Router<T>>,
 ) -> Result<(), ListenError>
 where
-    S: Send + Sync + 'static,
+    T: Send + Sync + 'static,
 {
-    let bind = net::lookup_host((addr.as_str(), port))
+    let bind = net::lookup_host((addr.as_ref(), port))
         .await
         .and_then(|mut addrs| {
             addrs
@@ -463,7 +466,7 @@ where
                 .ok_or_else(|| io::Error::from(io::ErrorKind::AddrNotAvailable))
         })
         .context(BindSnafu {
-            addr: addr.as_str(),
+            addr: addr.as_ref(),
             port,
         })?;
 
@@ -475,7 +478,10 @@ where
         .with_custom_tls(tls)
         .build();
 
-    let endpoint = Endpoint::server(config).context(BindSnafu { addr, port })?;
+    let endpoint = Endpoint::server(config).context(BindSnafu {
+        addr: addr.as_ref(),
+        port,
+    })?;
     let path: Arc<str> = format!("/{}", path.trim_start_matches('/')).into();
 
     loop {
