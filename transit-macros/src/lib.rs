@@ -79,16 +79,6 @@ pub fn error_shard(
     let record = syn::parse_macro_input!(tokens1 as syn::ItemStruct);
     let ident = &record.ident;
 
-    let ident_display = syn::Ident::new(
-        &format!("{}_display", ident.to_string().to_snake_case()),
-        ident.span(),
-    );
-
-    let ident_report = syn::Ident::new(
-        &format!("{}_report", ident.to_string().to_snake_case()),
-        ident.span(),
-    );
-
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
@@ -97,16 +87,16 @@ pub fn error_shard(
         #[snafu(display(#attr))]
         #tokens
 
-        #[cfg(feature = "uniffi")]
-        #[::uniffi::export]
-        pub fn #ident_display (error: #ident) -> String {
-            format!("{error}")
-        }
+        #[cfg_attr(feature = "uniffi", ::uniffi::export)]
+        #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+        impl #ident {
+            pub fn display(&self) -> String {
+                format!("{self}")
+            }
 
-        #[cfg(feature = "uniffi")]
-        #[::uniffi::export]
-        pub fn #ident_report (error: #ident) -> String {
-            snafu::Report::from_error(&error).to_string()
+            pub fn report(&self) -> String {
+                snafu::Report::from_error(self).to_string()
+            }
         }
     }
     .into()
@@ -237,7 +227,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
             #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
             #[cfg_attr(target_family = "wasm", serde(tag = "tag"))]
-            #[cfg_attr(feature = "uniffi", derive(::uniffi::Error))]
+            #[cfg_attr(feature = "uniffi", derive(::uniffi::Object))]
             #[snafu(visibility(pub))]
             #[snafu(module)]
             pub enum #name {
@@ -249,6 +239,18 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             impl From<::transit_core::InternalError> for #name {
                 fn from(other: ::transit_core::InternalError) -> Self {
                     Self::InternalError { source: other }
+                }
+            }
+
+            #[cfg_attr(feature = "uniffi", ::uniffi::export)]
+            #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+            impl #name {
+                pub fn display(&self) -> String {
+                    format!("{self}")
+                }
+
+                pub fn report(&self) -> String {
+                    snafu::Report::from_error(self).to_string()
                 }
             }
 
@@ -334,7 +336,7 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             #[cfg(any(feature = "uniffi", target_family = "wasm"))]
             #[derive(Debug)]
-            #[cfg_attr(feature = "uniffi", derive(::uniffi::Error))]
+            #[cfg_attr(feature = "uniffi", derive(::uniffi::Object))]
             #[cfg_attr(target_family = "wasm", derive(::serde::Serialize))]
             pub enum #error_type {
                 Protocol(#response_e),
@@ -360,6 +362,22 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                     match self {
                         Self::Protocol(e) => Some(e),
                         Self::Route(e) => Some(e),
+                    }
+                }
+            }
+
+            #[cfg(any(feature = "uniffi", target_family = "wasm"))]
+            #[cfg_attr(feature = "uniffi", ::uniffi::export)]
+            #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+            impl #error_type {
+                pub fn display(&self) -> String {
+                    format!("{self}")
+                }
+
+                pub fn report(&self) -> String {
+                    match self {
+                        Self::Protocol(e) => ::snafu::Report::from_error(&e).to_string(),
+                        Self::Route(e) => ::snafu::Report::from_error(&e).to_string(),
                     }
                 }
             }
