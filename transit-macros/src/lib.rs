@@ -11,13 +11,21 @@ use syn::{
 
 #[proc_macro_attribute]
 pub fn record(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     tokens: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let tokens = TokenStream::from(tokens);
+    let ident = syn::parse_macro_input!(attr as Option<syn::Ident>);
+
+    let dbg = if ident.is_some_and(|i| i == "no_debug") {
+        quote! {}
+    } else {
+        quote! { #[derive(Debug)] }
+    };
 
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, Clone)]
+        #dbg
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Record))]
         #tokens
@@ -27,10 +35,11 @@ pub fn record(
 
 #[proc_macro_attribute]
 pub fn oneof(
-    _attr: proc_macro::TokenStream,
+    attr: proc_macro::TokenStream,
     tokens: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let item = syn::parse_macro_input!(tokens as syn::ItemEnum);
+    let ident = syn::parse_macro_input!(attr as Option<syn::Ident>);
 
     let tagging = if item
         .variants
@@ -42,8 +51,15 @@ pub fn oneof(
         quote! { serde(tag = "tag") }
     };
 
+    let dbg = if ident.is_some_and(|i| i == "no_debug") {
+        quote! {}
+    } else {
+        quote! { #[derive(Debug)] }
+    };
+
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, Clone)]
+        #dbg
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
         #[cfg_attr(target_family = "wasm", #tagging)]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Enum))]
