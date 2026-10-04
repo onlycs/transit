@@ -26,6 +26,7 @@ pub enum RouteError {
     Frame {
         source: frame::FrameError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -33,6 +34,7 @@ pub enum RouteError {
     Tx {
         source: RecvError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -40,6 +42,7 @@ pub enum RouteError {
     Decode {
         source: bitcode::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -47,6 +50,7 @@ pub enum RouteError {
     Connect {
         source: arch::ConnectError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -54,6 +58,7 @@ pub enum RouteError {
     FetchKnownRoutes {
         source: InternalError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -61,18 +66,21 @@ pub enum RouteError {
     Send {
         source: SendError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
     #[snafu(display("Request timeout"))]
     Timeout {
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
     #[snafu(display("Request closed"))]
     Closed {
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -80,6 +88,7 @@ pub enum RouteError {
     UnknownRoute {
         route: RouteId,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 

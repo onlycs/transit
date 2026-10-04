@@ -37,6 +37,7 @@ pub enum FrameError {
     FrameTooLong {
         size: f32,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -44,6 +45,7 @@ pub enum FrameError {
     MessageId {
         source: getrandom::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }
@@ -55,6 +57,7 @@ pub(super) enum FrameIOError {
     Frame {
         source: FrameError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -63,12 +66,14 @@ pub(super) enum FrameIOError {
     Read {
         source: io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
     #[snafu(display("Write timeout"))]
     Write {
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }

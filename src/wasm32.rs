@@ -25,6 +25,7 @@ pub enum ConnectErrorInner {
         url: String,
 
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -34,6 +35,7 @@ pub enum ConnectErrorInner {
         url: String,
 
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -43,6 +45,7 @@ pub enum ConnectErrorInner {
         url: String,
 
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }

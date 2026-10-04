@@ -31,6 +31,7 @@ pub enum ListenError {
         addr: String,
         port: u16,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -38,12 +39,14 @@ pub enum ListenError {
     CertChain {
         source: io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
     #[snafu(display("Empty certificate chain"))]
     CertChainEmpty {
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -51,12 +54,14 @@ pub enum ListenError {
     PrivateKey {
         source: io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
     #[snafu(display("Missing private key"))]
     MissingPrivateKey {
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -64,6 +69,7 @@ pub enum ListenError {
     ClientCa {
         source: io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -71,6 +77,7 @@ pub enum ListenError {
     ClientCaAdd {
         source: rustls::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -78,6 +85,7 @@ pub enum ListenError {
     ClientVerifier {
         source: VerifierBuilderError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -85,6 +93,7 @@ pub enum ListenError {
     ServerConfig {
         source: rustls::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }
@@ -95,6 +104,7 @@ pub enum AcceptError {
     Tls {
         source: io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -102,6 +112,7 @@ pub enum AcceptError {
     Session {
         source: ConnectionError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -109,6 +120,7 @@ pub enum AcceptError {
     Stream {
         source: ConnectionError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }
@@ -119,6 +131,7 @@ pub enum RoundTripError {
     Frame {
         source: frame::FrameError,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }
@@ -280,7 +293,7 @@ impl<S: Send + Sync + 'static> Router<S> {
             runner,
         }) = self.routes.get(&route_id)
         else {
-            info!(route = route_hex, "Client requested unknown route");
+            debug!(route = route_hex, "Client requested unknown route");
             return None;
         };
 

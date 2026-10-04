@@ -18,6 +18,7 @@ pub enum ConnectError {
     RootCertParse {
         source: std::io::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -25,6 +26,7 @@ pub enum ConnectError {
     RootCertAdd {
         source: rustls::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -32,6 +34,7 @@ pub enum ConnectError {
     PlatformVerifier {
         source: rustls::Error,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -40,6 +43,7 @@ pub enum ConnectError {
         source: rustls::pki_types::InvalidDnsNameError,
         addr: String,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -49,6 +53,7 @@ pub enum ConnectError {
         addr: String,
         port: u16,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 
@@ -58,6 +63,7 @@ pub enum ConnectError {
         addr: String,
         port: u16,
         #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
 }
