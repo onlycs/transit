@@ -65,12 +65,21 @@ where
     }
 }
 
-impl<T: From<InternalError> + ErrorCompat + Error, S: AsRef<str>, E> IntoError<T>
-    for private::InternalErrorMessageCtx<S, E>
+impl<T, S: AsRef<str>, E> IntoError<T> for private::InternalErrorMessageCtx<S, E>
+where
+    T: From<InternalError> + ErrorCompat + Error,
+    E: Into<Box<dyn Error + Send + Sync>>,
 {
     type Source = E;
 
-    fn into_error(self, _: E) -> T {
+    fn into_error(self, source: E) -> T {
+        let source: Box<dyn Error + Send + Sync> = source.into();
+
+        warn!(
+            "Returning an internal error: {source}. Full report:\n{}",
+            snafu::Report::from_error(&*source).to_string()
+        );
+
         let message = match self {
             private::InternalErrorMessageCtx::_InternalErrorMessage(s) => s.as_ref().to_string(),
             private::InternalErrorMessageCtx::__Phantom(never, _) => match never {},
@@ -82,6 +91,10 @@ impl<T: From<InternalError> + ErrorCompat + Error, S: AsRef<str>, E> IntoError<T
 
 #[macro_export]
 macro_rules! InternalErrorMessage {
+    ($e:expr) => {
+        $crate::error::_InternalErrorMessage(::std::format!("{}", $e))
+    };
+
     ($($args:tt)*) => {
         $crate::error::_InternalErrorMessage(::std::format!($($args)*))
     };
