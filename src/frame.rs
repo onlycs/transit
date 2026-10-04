@@ -253,6 +253,12 @@ pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
                     return;
                 }
             }
+
+            if let Err(err) = writer.flush().await {
+                warn!(%err, "Error flushing writer, closing connection");
+                notify.cancel();
+                return;
+            }
         }
     };
 
