@@ -189,7 +189,7 @@ impl<S: Send + Sync + 'static> Router<S> {
         Router::new(())
     }
 
-    pub fn route<R: Route, F: Future<Output = R::Response> + Send + Sync + 'static>(
+    pub fn route<R: Route, F: Future<Output = R::Response> + Send + 'static>(
         mut self,
         handler: fn(R::Request, Arc<S>) -> F,
     ) -> Self {
@@ -216,7 +216,7 @@ impl<S: Send + Sync + 'static> Router<S> {
         self
     }
 
-    pub fn route_stateless<R: Route, F: Future<Output = R::Response> + Send + Sync + 'static>(
+    pub fn route_stateless<R: Route, F: Future<Output = R::Response> + Send + 'static>(
         mut self,
         handler: fn(R::Request) -> F,
     ) -> Self {
