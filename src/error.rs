@@ -129,11 +129,11 @@ where
 
 #[macro_export]
 macro_rules! InternalErrorMessage {
-    (ctx:none, $e:expr) => {
-        $crate::InternalErrorMessage!(ctx:none, "{}", $e)
+    (ctx(none), $e:expr) => {
+        $crate::InternalErrorMessage!(ctx(none), "{}", $e)
     };
 
-    (ctx:none, $($args:tt)*) => {{
+    (ctx(none), $($args:tt)*) => {{
         let message = ::std::format!($($args)*);
 
         ::tracing::warn!(
@@ -145,20 +145,20 @@ macro_rules! InternalErrorMessage {
         $crate::error::InternalError { message }
     }};
 
-    (ctx:display, $e:expr) => {
+    (ctx(display), $e:expr) => {
         $crate::error::_InternalErrorMessageViaDisplay(::std::format!("{}", $e))
     };
 
-    (ctx:display, $($args:tt)*) => {
+    (ctx(display), $($args:tt)*) => {
         $crate::error::_InternalErrorMessageViaDisplay(::std::format!($($args)*))
     };
 
-    (ctx:$ctx:expr, $e:expr) => {
-        $crate::InternalErrorMessage!(ctx:$ctx, "{}", $e)
+    (ctx($ctx:expr), $e:expr) => {
+        $crate::InternalErrorMessage!(ctx($ctx), "{}", $e)
     };
 
-    (ctx:$ctx:expr, $($args:tt)*) => {{
-        let message = format!($($args)*);
+    (ctx($ctx:expr), $($args:tt)*) => {{
+        let message = ::std::format!($($args)*);
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
@@ -170,12 +170,12 @@ macro_rules! InternalErrorMessage {
         $crate::error::InternalError { message }
     }};
 
-    (ctx:display:$ctx:expr, $e:expr) => {
-        $crate::InternalErrorMessage!(ctx:display:$ctx, "{}", $e)
+    (ctx(display $ctx:expr), $e:expr) => {
+        $crate::InternalErrorMessage!(ctx(display $ctx), "{}", $e)
     };
 
-    (ctx:display:$ctx:expr, $($args:tt)*) => {{
-        let message = format!($($args)*);
+    (ctx(display $ctx:expr), $($args:tt)*) => {{
+        let message = ::std::format!($($args)*);
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
