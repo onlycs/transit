@@ -13,6 +13,8 @@ default = []
 uniffi = ["dep:uniffi", "transit-core/uniffi"]
 client = ["transit-core/client"]
 server = ["transit-core/server"]
+tokio = ["transit-core/tokio"]
+async-io = ["transit-core/async-io"]
 
 [dependencies]
 bitcode = "0.6.9"

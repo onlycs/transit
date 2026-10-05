@@ -27,4 +27,4 @@ transit-native-server:
 
 example:
 	@echo "=== Building example"
-	cd examples/idp-proto && cargo build --release --features client
+	cd examples/idp-proto && cargo build --release --features client,tokio

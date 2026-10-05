@@ -231,7 +231,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #[snafu(visibility(pub))]
             #[snafu(module)]
             pub enum #name {
-                #[snafu(display("Internal server error"))]
+                #[snafu(display("{source}"))]
                 InternalError { source: transit_core::InternalError },
                 #(#variants),*
             }
@@ -251,6 +251,18 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 pub fn report(&self) -> String {
                     snafu::Report::from_error(self).to_string()
+                }
+            }
+
+            impl ::snafu::FromString for #name {
+                type Source = ::snafu::NoneError;
+
+                fn with_source(_: Self::Source, message: String) -> Self {
+                    Self::InternalError { source: ::transit_core::InternalError { message } }
+                }
+
+                fn without_source(message: String) -> Self {
+                    Self::InternalError { source: ::transit_core::InternalError { message } }
                 }
             }
 
