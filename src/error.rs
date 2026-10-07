@@ -3,7 +3,7 @@ use std::{error::Error, fmt};
 use snafu::IntoError;
 
 pub(super) mod private {
-    use std::{fmt, marker::PhantomData};
+    use std::marker::PhantomData;
 
     use snafu::NoneError;
     use transit_macros::error_shard;
@@ -36,14 +36,14 @@ pub(super) mod private {
         __Phantom(std::convert::Infallible, PhantomData<fn(E)>),
     }
 
-    pub enum ConvertToErrorViaErrorCtx<S, E: fmt::Display> {
+    pub enum ConvertToErrorViaErrorCtx<S, E> {
         _ConvertToErrorViaError(E),
 
         #[doc(hidden)]
         __Phantom(std::convert::Infallible, PhantomData<fn(S)>),
     }
 
-    pub enum ConvertToErrorViaDisplayCtx<S, E: fmt::Display> {
+    pub enum ConvertToErrorViaDisplayCtx<S, E> {
         _ConvertToErrorViaDisplay(E),
 
         #[doc(hidden)]
@@ -81,7 +81,7 @@ where
 
 impl<S, E> IntoError<E> for private::ConvertToErrorViaErrorCtx<S, E>
 where
-    E: fmt::Display + snafu::ErrorCompat + std::error::Error,
+    E: snafu::ErrorCompat + std::error::Error,
     S: Into<Box<dyn Error + Send + Sync>>,
 {
     type Source = S;
@@ -108,7 +108,7 @@ where
 
 impl<S, E> IntoError<E> for private::ConvertToErrorViaDisplayCtx<S, E>
 where
-    E: fmt::Display + snafu::ErrorCompat + std::error::Error,
+    E: snafu::ErrorCompat + std::error::Error,
     S: fmt::Display,
 {
     type Source = S;
@@ -133,12 +133,8 @@ where
 #[macro_export]
 macro_rules! InternalError {
     // CASE: dev just wants a new InternalError
-    (ctx(none), $e:expr) => {
-        $crate::InternalError!(ctx(none), "{}", $e)
-    };
-
-    (ctx(none), $($args:tt)*) => {{
-        let message = ::std::format!($($args)*);
+    (ctx(none), $fmt:literal $($rest:tt)*) => {{
+        let message = ::std::format!($fmt $($rest)*);
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
@@ -149,13 +145,31 @@ macro_rules! InternalError {
         $crate::InternalError { message }
     }};
 
-    // CASE: dev wants to create a new InternalError, but has and wants to emit a source
-    (ctx($ctx:expr), $e:expr) => {
-        $crate::InternalError!(ctx($ctx), "{}", $e)
+    (ctx(none), $e:expr) => {
+        $crate::InternalError!(ctx(none), "{}", $e)
     };
 
-    (ctx($ctx:expr), $($args:tt)*) => {{
-        let message = ::std::format!($($args)*);
+    // CASE: dev wants to create a new InternalError, but has and wants to emit a source, but the source is not StdError
+    (ctx(display $ctx:expr), $fmt:literal $($rest:tt)*) => {{
+        let message = ::std::format!($fmt $($rest)*);
+
+        ::tracing::warn!(
+            at = %std::panic::Location::caller(),
+            returned = message,
+            "Returning an internal error. Full report:\n{}",
+            $ctx
+        );
+
+        $crate::InternalError { message }
+    }};
+
+    (ctx(display $ctx:expr), $e:expr) => {
+        $crate::InternalError!(ctx(display $ctx), "{}", $e)
+    };
+
+    // CASE: dev wants to create a new InternalError, but has and wants to emit a source
+    (ctx($ctx:expr), $fmt:literal $($rest:tt)*) => {{
+        let message = ::std::format!($fmt $($rest)*);
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
@@ -167,43 +181,29 @@ macro_rules! InternalError {
         $crate::InternalError { message }
     }};
 
-    // CASE: dev wants to create a new InternalError, but has and wants to emit a source, but the source is not StdError
-    (ctx(display $ctx:expr), $e:expr) => {
-        $crate::InternalError!(ctx(display $ctx), "{}", $e)
+    (ctx($ctx:expr), $e:expr) => {
+        $crate::InternalError!(ctx($ctx), "{}", $e)
     };
-
-    (ctx(display $ctx:expr), $($args:tt)*) => {{
-        let message = ::std::format!($($args)*);
-
-        ::tracing::warn!(
-            at = %std::panic::Location::caller(),
-            reason = message,
-            "Returning an internal error. Full report:\n{}",
-            $ctx
-        );
-
-        $crate::InternalError { message }
-    }};
 }
 
 #[macro_export]
 macro_rules! InternalErrorContext {
     // CASE: dev wants to use .context() with this macro, but source is not StdError
+    (via(display), $fmt:literal $($rest:tt)*) => {
+        $crate::TransitErrorContext!(via(display), $crate::InternalError { message: ::std::format!($fmt $($rest)*) })
+    };
+
     (via(display), $e:expr) => {
         $crate::InternalErrorContext!(via(display), "{}", $e)
     };
 
-    (via(display), $($args:tt)*) => {
-        $crate::TransitErrorContext!(via(display), $crate::InternalError { message: ::std::format!($($args)*) })
+    // CASE: dev wants to use .context() with this macro
+    ($fmt:literal $($rest:tt)*) => {
+        $crate::TransitErrorContext!($crate::InternalError { message: ::std::format!($fmt $($rest)*) })
     };
 
-    // CASE: dev wants to use .context() with this macro
     ($e:expr) => {
         $crate::InternalErrorContext!("{}", $e)
-    };
-
-    ($($args:tt)*) => {
-        $crate::TransitErrorContext!($crate::InternalError { message: ::std::format!($($args)*) })
     };
 }
 
