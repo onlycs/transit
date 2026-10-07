@@ -53,7 +53,7 @@ pub(super) mod private {
 
 pub use private::{
     ConvertToErrorViaDisplayCtx::_ConvertToErrorViaDisplay,
-    ConvertToErrorViaErrorCtx::_ConvertToErrorViaError, InternalErrorCtx::InternalSnafu,
+    ConvertToErrorViaErrorCtx::_ConvertToErrorViaError,
 };
 use tracing::warn;
 
