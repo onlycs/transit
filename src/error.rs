@@ -189,12 +189,12 @@ macro_rules! InternalError {
 #[macro_export]
 macro_rules! InternalErrorContext {
     // CASE: dev wants to use .context() with this macro, but source is not StdError
-    (display $e:expr) => {
-        $crate::InternalErrorContext!(display "{}", $e)
+    (via(display), $e:expr) => {
+        $crate::InternalErrorContext!(via(display), "{}", $e)
     };
 
-    (display $($args:tt)*) => {
-        $crate::TransitErrorContext!(display $crate::InternalError { message: ::std::format!($($args)*) })
+    (via(display), $($args:tt)*) => {
+        $crate::TransitErrorContext!(via(display), $crate::InternalError { message: ::std::format!($($args)*) })
     };
 
     // CASE: dev wants to use .context() with this macro
@@ -209,11 +209,11 @@ macro_rules! InternalErrorContext {
 
 #[macro_export]
 macro_rules! TransitErrorContext {
-    ($into:expr) => {
-        $crate::error::_ConvertToErrorViaError($into)
+    (via(display), $into:expr) => {
+        $crate::error::_ConvertToErrorViaDisplay($into)
     };
 
-    (display $into:expr) => {
-        $crate::error::_ConvertToErrorViaDisplay($into)
+    ($into:expr) => {
+        $crate::error::_ConvertToErrorViaError($into)
     };
 }
