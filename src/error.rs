@@ -150,15 +150,6 @@ macro_rules! InternalErrorMessage {
         $crate::error::InternalError { message }
     }};
 
-    // CASE: dev wants to use .context() with this macro, but source is not StdError
-    (ctx(display), $e:expr) => {
-        $crate::InternalErrorMessage!(ctx(display), "{}", $e)
-    };
-
-    (ctx(display), $($args:tt)*) => {
-        $crate::TransitErrorContext!(display $crate::error::InternalError { message: ::std::format!($($args)*) })
-    };
-
     // CASE: dev wants to create a new InternalError, but has and wants to emit a source
     (ctx($ctx:expr), $e:expr) => {
         $crate::InternalErrorMessage!(ctx($ctx), "{}", $e)
@@ -194,10 +185,22 @@ macro_rules! InternalErrorMessage {
 
         $crate::error::InternalError { message }
     }};
+}
+
+#[macro_export]
+macro_rules! InternalErrorContext {
+    // CASE: dev wants to use .context() with this macro, but source is not StdError
+    (display $e:expr) => {
+        $crate::InternalErrorContext!(display "{}", $e)
+    };
+
+    (display $($args:tt)*) => {
+        $crate::TransitErrorContext!(display $crate::error::InternalError { message: ::std::format!($($args)*) })
+    };
 
     // CASE: dev wants to use .context() with this macro
     ($e:expr) => {
-        $crate::InternalErrorMessage!("{}", $e)
+        $crate::InternalErrorContext!("{}", $e)
     };
 
     ($($args:tt)*) => {
