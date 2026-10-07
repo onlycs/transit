@@ -98,6 +98,14 @@ pub fn error_shard(
                 snafu::Report::from_error(self).to_string()
             }
         }
+
+        impl ::snafu::IntoError<#ident> for #ident {
+            type Source = ::snafu::NoneError;
+
+            fn into_error(self, source: Self::Source) -> #ident {
+                self
+            }
+        }
     }
     .into()
 }
