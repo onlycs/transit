@@ -41,7 +41,7 @@ pub mod frame;
 pub mod route;
 mod rt;
 
-pub use error::{InternalError, InternalSnafu};
+pub use error::{InternalSnafu, private::InternalError};
 pub use route::Route;
 pub use transit_macros::{error, error_shard, oneof, record, route};
 
