@@ -3,6 +3,8 @@ use std::{error::Error, fmt};
 use snafu::IntoError;
 
 mod private {
+    use std::{fmt, marker::PhantomData};
+
     use snafu::NoneError;
     use transit_macros::error_shard;
     #[cfg(target_family = "wasm")]
@@ -31,28 +33,28 @@ mod private {
         InternalSnafu,
 
         #[doc(hidden)]
-        __Phantom(std::convert::Infallible, std::marker::PhantomData<fn(E)>),
+        __Phantom(std::convert::Infallible, PhantomData<fn(E)>),
     }
 
-    pub enum InternalErrorMessageViaErrorCtx<S: AsRef<str>, E> {
-        _InternalErrorMessageViaError(S),
+    pub enum ConvertToErrorViaErrorCtx<S, E: fmt::Display> {
+        _ConvertToErrorViaError(E),
 
         #[doc(hidden)]
-        __Phantom(std::convert::Infallible, std::marker::PhantomData<fn(E)>),
+        __Phantom(std::convert::Infallible, PhantomData<fn(S)>),
     }
 
-    pub enum InternalErrorMessageViaDisplayCtx<S: AsRef<str>, E> {
-        _InternalErrorMessageViaDisplay(S),
+    pub enum ConvertToErrorViaDisplayCtx<S, E: fmt::Display> {
+        _ConvertToErrorViaDisplay(E),
 
         #[doc(hidden)]
-        __Phantom(std::convert::Infallible, std::marker::PhantomData<fn(E)>),
+        __Phantom(std::convert::Infallible, PhantomData<fn(S)>),
     }
 }
 
 pub use private::{
-    InternalError, InternalErrorCtx::InternalSnafu,
-    InternalErrorMessageViaDisplayCtx::_InternalErrorMessageViaDisplay,
-    InternalErrorMessageViaErrorCtx::_InternalErrorMessageViaError,
+    ConvertToErrorViaDisplayCtx::_ConvertToErrorViaDisplay,
+    ConvertToErrorViaErrorCtx::_ConvertToErrorViaError, InternalError,
+    InternalErrorCtx::InternalSnafu,
 };
 use tracing::warn;
 
@@ -78,57 +80,60 @@ where
     }
 }
 
-impl<S: AsRef<str>, E> IntoError<InternalError> for private::InternalErrorMessageViaErrorCtx<S, E>
+impl<S, E> IntoError<E> for private::ConvertToErrorViaErrorCtx<S, E>
 where
-    E: Into<Box<dyn Error + Send + Sync>>,
+    E: fmt::Display + snafu::ErrorCompat + std::error::Error,
+    S: Into<Box<dyn Error + Send + Sync>>,
 {
-    type Source = E;
+    type Source = S;
 
     #[track_caller]
-    fn into_error(self, source: E) -> InternalError {
+    fn into_error(self, source: S) -> E {
         let source: Box<dyn Error + Send + Sync> = source.into();
 
-        let message = match self {
-            Self::_InternalErrorMessageViaError(s) => s.as_ref().to_string(),
+        let res = match self {
+            Self::_ConvertToErrorViaError(e) => e,
             Self::__Phantom(never, _) => match never {},
         };
 
         warn!(
             at = %std::panic::Location::caller(),
-            reason = message,
-            "Returning an internal error. Full report:\n{}",
+            returned = %res,
+            "Returning an error. Full report:\n{}",
             snafu::Report::from_error(&*source).to_string()
         );
 
-        InternalError { message }
+        res
     }
 }
 
-impl<S: AsRef<str>, E> IntoError<InternalError> for private::InternalErrorMessageViaDisplayCtx<S, E>
+impl<S, E> IntoError<E> for private::ConvertToErrorViaDisplayCtx<S, E>
 where
-    E: fmt::Display,
+    E: fmt::Display + snafu::ErrorCompat + std::error::Error,
+    S: fmt::Display,
 {
-    type Source = E;
+    type Source = S;
 
     #[track_caller]
-    fn into_error(self, source: E) -> InternalError {
-        let message = match self {
-            Self::_InternalErrorMessageViaDisplay(s) => s.as_ref().to_string(),
+    fn into_error(self, source: S) -> E {
+        let res = match self {
+            Self::_ConvertToErrorViaDisplay(e) => e,
             Self::__Phantom(never, _) => match never {},
         };
 
         warn!(
             at = %std::panic::Location::caller(),
-            reason = message,
-            "Returning an internal error. Full report:\n{source}"
+            returned = %res,
+            "Returning an error. Source message:\n{source}",
         );
 
-        InternalError { message }
+        res
     }
 }
 
 #[macro_export]
 macro_rules! InternalErrorMessage {
+    // CASE: dev just wants a new InternalError
     (ctx(none), $e:expr) => {
         $crate::InternalErrorMessage!(ctx(none), "{}", $e)
     };
@@ -138,21 +143,23 @@ macro_rules! InternalErrorMessage {
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
-            reason = message,
+            returned = message,
             "Returning an internal error."
         );
 
         $crate::error::InternalError { message }
     }};
 
+    // CASE: dev wants to use .context() with this macro, but source is not StdError
     (ctx(display), $e:expr) => {
-        $crate::error::_InternalErrorMessageViaDisplay(::std::format!("{}", $e))
+        $crate::InternalErrorMessage!(ctx(display), "{}", $e)
     };
 
     (ctx(display), $($args:tt)*) => {
-        $crate::error::_InternalErrorMessageViaDisplay(::std::format!($($args)*))
+        $crate::TransitErrorContext!(display $crate::error::InternalError { message: ::std::format!($($args)*) })
     };
 
+    // CASE: dev wants to create a new InternalError, but has and wants to emit a source
     (ctx($ctx:expr), $e:expr) => {
         $crate::InternalErrorMessage!(ctx($ctx), "{}", $e)
     };
@@ -162,7 +169,7 @@ macro_rules! InternalErrorMessage {
 
         ::tracing::warn!(
             at = %std::panic::Location::caller(),
-            reason = message,
+            returned = message,
             "Returning an internal error. Full report:\n{}",
             ::snafu::Report::from_error(&$ctx).to_string()
         );
@@ -170,6 +177,7 @@ macro_rules! InternalErrorMessage {
         $crate::error::InternalError { message }
     }};
 
+    // CASE: dev wants to create a new InternalError, but has and wants to emit a source, but the source is not StdError
     (ctx(display $ctx:expr), $e:expr) => {
         $crate::InternalErrorMessage!(ctx(display $ctx), "{}", $e)
     };
@@ -187,11 +195,23 @@ macro_rules! InternalErrorMessage {
         $crate::error::InternalError { message }
     }};
 
+    // CASE: dev wants to use .context() with this macro
     ($e:expr) => {
-        $crate::error::_InternalErrorMessageViaError(::std::format!("{}", $e))
+        $crate::InternalErrorMessage!("{}", $e)
     };
 
     ($($args:tt)*) => {
-        $crate::error::_InternalErrorMessageViaError(::std::format!($($args)*))
+        $crate::TransitErrorContext!($crate::error::InternalError { message: ::std::format!($($args)*) })
+    };
+}
+
+#[macro_export]
+macro_rules! TransitErrorContext {
+    ($into:expr) => {
+        $crate::error::_ConvertToErrorViaError($into)
+    };
+
+    (display $into:expr) => {
+        $crate::error::_ConvertToErrorViaDisplay($into)
     };
 }
