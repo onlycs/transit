@@ -99,6 +99,12 @@ pub fn error_shard(
             }
         }
 
+        impl #ident {
+            pub fn fail<T>(self) -> Result<T, #ident> {
+                Err(self)
+            }
+        }
+
         impl ::snafu::IntoError<#ident> for #ident {
             type Source = ::snafu::NoneError;
 
