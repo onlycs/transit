@@ -212,30 +212,47 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
     });
 
     let composed_gen = left.into_iter().map(|ErrorComposed { name, sum }| {
-        let (variants, impl_from) = sum
+        let (lasts, tys) = sum
             .into_iter()
             .map(|ty| {
                 let syn::Type::Path(syn::TypePath { path, .. }) = &ty else {
                     panic!("cant parse this type {ty:?}")
                 };
 
-                let last = &path.segments.last().unwrap().ident;
+                let last = path.segments.last().unwrap().ident.clone();
 
-                (
-                    quote! {
-                        #[snafu(display("{source}"))]
-                        #last { source: #ty }
-                    },
-                    quote! {
-                        impl From<#ty> for #name {
-                            fn from(other: #ty) -> Self {
-                                Self::#last { source: other }
-                            }
-                        }
-                    },
-                )
+                (last, ty)
             })
             .unzip::<_, _, Vec<_>, Vec<_>>();
+
+        let variants = lasts.iter().zip(&tys).map(|(last, ty)| quote! {
+            #[snafu(display("{source}"))]
+            #last { source: #ty }
+        });
+
+        let impl_from = lasts.iter().zip(&tys).map(|(last, ty)| quote! {
+            impl From<#ty> for #name {
+                fn from(other: #ty) -> Self {
+                    Self::#last { source: other }
+                }
+            }
+        });
+
+        let meta_impl_from = quote! {
+            impl #name {
+                pub fn into<S>(self) -> S
+                where
+                    S: #(From<#tys>)+* + From<::transit_core::InternalError>
+                {
+                    match self {
+                        #(
+                            #name::#lasts { source } => <S as From<#tys>>::from(source),
+                        )*
+                        Self::InternalError { source } => <S as From<::transit_core::InternalError>>::from(source),
+                    }
+                }
+            }
+        };
 
         quote! {
             #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
@@ -246,7 +263,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #[snafu(module)]
             pub enum #name {
                 #[snafu(display("{source}"))]
-                InternalError { source: transit_core::InternalError },
+                InternalError { source: ::transit_core::InternalError },
                 #(#variants),*
             }
 
@@ -281,6 +298,8 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             #(#impl_from)*
+
+            #meta_impl_from
         }
     });
 
