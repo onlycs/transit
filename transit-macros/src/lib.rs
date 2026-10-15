@@ -4,17 +4,41 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
     Token,
-    parse::{Parse, ParseStream},
+    parse::{Parse, ParseStream, Parser},
     punctuated::Punctuated,
     spanned::Spanned,
 };
+
+fn ident_of(ty: &syn::Type) -> &syn::Ident {
+    let syn::Type::Path(syn::TypePath { path, .. }) = &ty else {
+        panic!("cant parse this type {ty:?}")
+    };
+
+    let seg = path.segments.last().unwrap();
+
+    if let syn::PathArguments::AngleBracketed(ab) = &seg.arguments {
+        let arg = ab
+            .args
+            .iter()
+            .filter_map(|a| match a {
+                syn::GenericArgument::Type(ty) => Some(ty),
+                _ => None,
+            })
+            .next_back()
+            .unwrap();
+
+        ident_of(arg)
+    } else {
+        &path.segments.last().unwrap().ident
+    }
+}
 
 #[proc_macro_attribute]
 pub fn record(
     attr: proc_macro::TokenStream,
     tokens: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
-    let tokens = TokenStream::from(tokens);
+    let mut tokens = syn::parse_macro_input!(tokens as syn::ItemStruct);
     let ident = syn::parse_macro_input!(attr as Option<syn::Ident>);
 
     let dbg = if ident.is_some_and(|i| i == "no_debug") {
@@ -22,6 +46,22 @@ pub fn record(
     } else {
         quote! { #[derive(Debug)] }
     };
+
+    let syn::Fields::Named(named) = &mut tokens.fields else {
+        panic!("Expected named struct");
+    };
+
+    named.named.iter_mut().for_each(|field| {
+        if let syn::Type::Path(pth) = &field.ty
+            && pth.path.segments.last().unwrap().ident == "Option"
+        {
+            let attrs = syn::Attribute::parse_outer.parse2(quote! {
+                #[cfg_attr(target_family = "wasm", tsify(optional))]
+                #[cfg_attr(target_family = "wasm", serde(default, skip_serializing_if = "Option::is_none"))]
+            }).unwrap();
+            field.attrs.extend(attrs)
+        }
+    });
 
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, Clone)]
@@ -81,14 +121,14 @@ pub fn error_shard(
 
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
-        #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
+        #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::tsify::Tsify))]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Record))]
         #[snafu(visibility(pub))]
         #[snafu(display(#attr))]
         #tokens
 
-        #[cfg_attr(feature = "uniffi", ::uniffi::export)]
-        #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+        #[cfg(feature = "uniffi")]
+        #[::uniffi::export]
         impl #ident {
             pub fn display(&self) -> String {
                 format!("{self}")
@@ -214,15 +254,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let composed_gen = left.into_iter().map(|ErrorComposed { name, sum }| {
         let (lasts, tys) = sum
             .into_iter()
-            .map(|ty| {
-                let syn::Type::Path(syn::TypePath { path, .. }) = &ty else {
-                    panic!("cant parse this type {ty:?}")
-                };
-
-                let last = path.segments.last().unwrap().ident.clone();
-
-                (last, ty)
-            })
+            .map(|ty| (ident_of(&ty).clone(), ty))
             .unzip::<_, _, Vec<_>, Vec<_>>();
 
         let variants = lasts.iter().zip(&tys).map(|(last, ty)| quote! {
@@ -256,9 +288,9 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         quote! {
             #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
-            #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
+            #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::tsify::Tsify))]
             #[cfg_attr(target_family = "wasm", serde(tag = "tag"))]
-            #[cfg_attr(feature = "uniffi", derive(::uniffi::Object))]
+            #[cfg_attr(feature = "uniffi", derive(::uniffi::Error))]
             #[snafu(visibility(pub))]
             #[snafu(module)]
             pub enum #name {
@@ -273,8 +305,8 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 }
             }
 
-            #[cfg_attr(feature = "uniffi", ::uniffi::export)]
-            #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+            #[cfg(feature = "uniffi")]
+            #[::uniffi::export]
             impl #name {
                 pub fn display(&self) -> String {
                     format!("{self}")
@@ -363,7 +395,6 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         let function = format_ident!("route_{}", name.to_string().to_snake_case());
         let result_type = format_ident!("{}Result", name);
         let error_type = format_ident!("{}FfiError", name);
-        let error_binding_type = format_ident!("_{}FfiErrorAlias", name);
         let js_return_type = result_type.to_string();
 
         quote! {
@@ -375,45 +406,45 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             #[cfg(feature = "uniffi")]
-            type #error_binding_type = ::std::sync::Arc<::transit_core::client::RouteError>;
-            #[cfg(target_family = "wasm")]
-            type #error_binding_type = ::std::cell::RefCell<Option<::transit_core::client::RouteErrorWrapped>>;
-
-            #[cfg(any(feature = "uniffi", target_family = "wasm"))]
-            #[derive(Debug)]
-            #[cfg_attr(feature = "uniffi", derive(::uniffi::Object))]
-            #[cfg_attr(target_family = "wasm", derive(::serde::Serialize))]
+            #[derive(Debug, ::uniffi::Error)]
             pub enum #error_type {
-                Protocol(#response_e),
-                Route(
-                    #[cfg_attr(target_family = "wasm", serde(serialize_with = "::transit_core::wbg_util::serialize_wrapper"))]
-                    #error_binding_type
-                ),
+                Protocol { source: #response_e },
+                Transit { source: ::std::sync::Arc<::transit_core::client::RouteError> },
             }
 
-            #[cfg(feature = "uniffi")]
+            #[cfg(target_family = "wasm")]
+            #[derive(Debug, ::serde::Serialize)]
+            pub enum #error_type {
+                Protocol { source: #response_e },
+                Transit {
+                    #[serde(serialize_with = "::transit_core::wbg_util::serialize_wrapper")]
+                    source: ::std::cell::RefCell<Option<::transit_core::client::RouteErrorWrapped>>
+                },
+            }
+
+            #[cfg(any(feature = "uniffi", target_family = "wasm"))]
             impl ::std::fmt::Display for #error_type {
                 fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                     match self {
-                        Self::Protocol(e) => ::std::fmt::Display::fmt(e, f),
-                        Self::Route(e) => ::std::fmt::Display::fmt(e, f),
-                    }
-                }
-            }
-
-            #[cfg(feature = "uniffi")]
-            impl ::std::error::Error for #error_type {
-                fn source(&self) -> Option<&(dyn ::std::error::Error + 'static)> {
-                    match self {
-                        Self::Protocol(e) => Some(e),
-                        Self::Route(e) => Some(e),
+                        Self::Protocol { source } => ::std::fmt::Display::fmt(source, f),
+                        Self::Transit { source } if let Some(s) = &*source.borrow() => ::std::fmt::Display::fmt(s, f),
+                        _ => Ok(())
                     }
                 }
             }
 
             #[cfg(any(feature = "uniffi", target_family = "wasm"))]
-            #[cfg_attr(feature = "uniffi", ::uniffi::export)]
-            #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+            impl ::std::error::Error for #error_type {
+                fn source(&self) -> Option<&(dyn ::std::error::Error + 'static)> {
+                    match self {
+                        Self::Protocol { source } => Some(source),
+                        Self::Transit { source } => None,
+                    }
+                }
+            }
+
+            #[cfg(feature = "uniffi")]
+            #[::uniffi::export]
             impl #error_type {
                 pub fn display(&self) -> String {
                     format!("{self}")
@@ -421,8 +452,8 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
                 pub fn report(&self) -> String {
                     match self {
-                        Self::Protocol(e) => ::snafu::Report::from_error(&e).to_string(),
-                        Self::Route(e) => ::snafu::Report::from_error(&e).to_string(),
+                        Self::Protocol { source } => ::snafu::Report::from_error(&source).to_string(),
+                        Self::Transit { source } => ::snafu::Report::from_error(&source).to_string(),
                     }
                 }
             }
@@ -432,8 +463,8 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub async fn #function(t: &::transit_core::client::Transit, req: #request) -> Result<#response_t, #error_type>
             {
                 t.route::<#name>(req).await
-                    .map_err(|e| #error_type::Route(::std::sync::Arc::new(e)))
-                    .and_then(|r| r.map_err(|e| #error_type::Protocol(e)))
+                    .map_err(|e| #error_type::Transit { source: ::std::sync::Arc::new(e) })
+                    .and_then(|r| r.map_err(|e| #error_type::Protocol { source: e }))
             }
 
             #[cfg(target_family = "wasm")]
@@ -452,8 +483,9 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 };
 
                 let result = result
-                    .map_err(|e| #error_type::Route(::std::cell::RefCell::new(Some(::transit_core::client::RouteErrorWrapped::wrap(e)))))
-                    .and_then(|r| r.map_err(|e| #error_type::Protocol(e)));
+                    .map_err(|e| #error_type::Transit { source: ::std::cell::RefCell::new(Some(::transit_core::client::RouteErrorWrapped::wrap(e))) })
+                    .and_then(|r| r.map_err(|e| #error_type::Protocol { source: e }))
+                    .map_err(::transit_core::ErrorJs::new);
 
                 ::serde_wasm_bindgen::to_value(&result)
             }
@@ -527,6 +559,13 @@ pub fn core_error(
             #[::wasm_bindgen::prelude::wasm_bindgen(unchecked_return_type = "never")]
             pub fn raise(&self) -> JsValue {
                 ::wasm_bindgen::throw_str(&::snafu::Report::from_error(&self.error).to_string());
+            }
+        }
+
+        #[cfg(target_family = "wasm")]
+        impl ::std::fmt::Display for #ident_wrap {
+            fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                self.error.fmt(f)
             }
         }
     }.into()

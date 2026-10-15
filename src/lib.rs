@@ -20,7 +20,7 @@ compile_error!("wasm is not compatible with `server`");
 compile_error!("wasm is not compatible with `async-io`");
 
 #[cfg(feature = "uniffi")]
-uniffi::setup_scaffolding!("transit_core");
+uniffi::setup_scaffolding!("transit");
 
 #[cfg(feature = "client")]
 #[cfg_attr(target_family = "wasm", path = "wasm32.rs")]
@@ -72,4 +72,24 @@ pub fn begin_logging(level: LogLevel) {
     let filter = Targets::new().with_default(level);
 
     tracing_subscriber::registry().with(filter).with(fmt).init();
+}
+
+#[cfg(target_family = "wasm")]
+#[derive(serde::Serialize, tsify::Tsify)]
+pub struct ErrorJs<E> {
+    pub display: String,
+    pub report: String,
+    #[serde(flatten)]
+    pub error: E,
+}
+
+#[cfg(target_family = "wasm")]
+impl<E: std::error::Error> ErrorJs<E> {
+    pub fn new(error: E) -> Self {
+        Self {
+            display: error.to_string(),
+            report: snafu::Report::from_error(&error).to_string(),
+            error,
+        }
+    }
 }
