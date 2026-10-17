@@ -272,7 +272,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
         let meta_impl_from = quote! {
             impl #name {
-                pub fn into<S>(self) -> S
+                pub fn cast<S>(self) -> S
                 where
                     S: #(From<#tys>)+* + From<::transit_core::InternalError>
                 {
