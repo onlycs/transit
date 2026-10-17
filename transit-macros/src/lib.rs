@@ -270,7 +270,30 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         });
 
+        let cast_ident = quote::format_ident!("{}Cast", name);
+        let cast_private = quote::format_ident!("__{}__private", name);
+
+
         let meta_impl_from = quote! {
+            #[allow(non_snake_case)]
+            mod #cast_private {
+                pub enum #cast_ident<S> {
+                    #cast_ident,
+                    _Phantom(::std::convert::Infallible, ::std::marker::PhantomData<fn(S)>)
+                }
+            }
+
+            pub use #cast_private::#cast_ident::#cast_ident;
+
+            impl<E: #(From<#tys>)+* + From<::transit_core::InternalError> + ::snafu::ErrorCompat + ::std::error::Error> ::snafu::IntoError<E> for #cast_private::#cast_ident<E> {
+                type Source = #name;
+
+                #[track_caller]
+                fn into_error(self, source: #name) -> E {
+                    source.cast::<E>()
+                }
+            }
+
             impl #name {
                 pub fn cast<S>(self) -> S
                 where
