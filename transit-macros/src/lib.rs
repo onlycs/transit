@@ -450,7 +450,10 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                     match self {
                         Self::Protocol { source } => ::std::fmt::Display::fmt(source, f),
+                        #[cfg(target_family = "wasm")]
                         Self::Transit { source } if let Some(s) = &*source.borrow() => ::std::fmt::Display::fmt(s, f),
+                        #[cfg(feature = "uniffi")]
+                        Self::Transit { source } => ::std::fmt::Display::fmt(source, f),
                         _ => Ok(())
                     }
                 }
