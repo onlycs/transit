@@ -7,7 +7,7 @@ use rustls::server::{VerifierBuilderError, WebPkiClientVerifier};
 use snafu::{Location, ResultExt, Snafu};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, trace, warn};
-use wtransport::{Endpoint, error::ConnectionError, tls::WEBTRANSPORT_ALPN};
+use wtransport::{Endpoint, Identity, error::ConnectionError};
 
 use crate::{
     InternalError, InternalSnafu, Route,
@@ -150,12 +150,11 @@ pub struct TcpListenOptions<S: AsRef<str>> {
     pub tls: Option<ServerTls>,
 }
 
-#[derive(Clone)]
 pub struct XwtListenOptions<S: AsRef<str>> {
     pub addr: S,
     pub port: u16,
     pub path: String,
-    pub tls: ServerTls,
+    pub tls: Identity,
 }
 
 #[derive(Clone, Copy)]
@@ -558,12 +557,9 @@ where
             port,
         })?;
 
-    let mut tls = server_tls_config(&tls)?;
-    tls.alpn_protocols = vec![WEBTRANSPORT_ALPN.to_vec()];
-
     let config = wtransport::ServerConfig::builder()
         .with_bind_address(bind)
-        .with_custom_tls(tls)
+        .with_identity(tls)
         .build();
 
     let endpoint = Endpoint::server(config).context(BindSnafu {

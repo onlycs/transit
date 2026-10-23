@@ -6,8 +6,13 @@
           "command": "clippy",
         },
         "cargo": {
-          "features": ["client", "tokio"],
-          "target": "wasm32-unknown-unknown",
+          "features": [
+            "client",
+            "server",
+            "tokio",
+            // "async-io"
+          ],
+          // "target": "wasm32-unknown-unknown",
         },
       },
     },
