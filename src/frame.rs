@@ -229,7 +229,7 @@ pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
             let frame = match rx.recv().await.cast_option() {
                 Some(frame) => frame,
                 None => {
-                    warn!("rx dropped, closing connection");
+                    trace!("rx dropped, closing connection");
                     notify.cancel();
                     return;
                 }

@@ -391,6 +391,12 @@ where
         // {message id}{route id}{data bytes}
         let fr = match frame::frame_decode(&mut read).await {
             Ok(fr) => fr,
+            Err(frame::FrameIOError::Read { source, .. })
+                if source.kind() == io::ErrorKind::UnexpectedEof =>
+            {
+                trace!("Client disconnected");
+                break;
+            }
             Err(e) => {
                 warn!(
                     "Failed to decode frame, closing connection. Full report:\n{}",
