@@ -596,3 +596,48 @@ pub fn core_error(
         }
     }.into()
 }
+
+#[proc_macro_attribute]
+pub fn constvar(
+    attr: proc_macro::TokenStream,
+    item: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let item = syn::parse_macro_input!(item as syn::ItemConst);
+    let cast = if attr.is_empty() {
+        None
+    } else {
+        Some(syn::parse_macro_input!(attr as syn::ExprCast))
+    };
+
+    let ident = &item.ident;
+    let snake = syn::Ident::new(&ident.to_string().to_snake_case(), ident.span());
+    let ty = &item.ty;
+    let docs = item.attrs.iter().filter(|a| a.path().is_ident("doc"));
+
+    let (ret_ty, body) = if let Some(syn::ExprCast { expr, ty, .. }) = cast {
+        (quote! { #ty }, quote! { #expr(#ident) })
+    } else if let syn::Type::Reference(syn::TypeReference { elem, .. }) = &**ty
+        && let syn::Type::Path(syn::TypePath { path, .. }) = &**elem
+        && path.is_ident("str")
+    {
+        (
+            quote! { ::std::string::String },
+            quote! { ::std::string::ToString::to_string(#ident) },
+        )
+    } else {
+        (quote! { #ty }, quote! { #ident })
+    };
+
+    quote! {
+        #item
+
+        #[cfg(any(feature = "uniffi", target_family = "wasm"))]
+        #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
+        #[cfg_attr(feature = "uniffi", ::uniffi::export)]
+        #(#docs)*
+        pub fn #snake() -> #ret_ty {
+            #body
+        }
+    }
+    .into()
+}

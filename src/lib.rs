@@ -43,7 +43,7 @@ mod rt;
 
 pub use error::private::{InternalError, InternalErrorCtx::InternalSnafu};
 pub use route::Route;
-pub use transit_macros::{error, error_shard, oneof, record, route};
+pub use transit_macros::{constvar, error, error_shard, oneof, record, route};
 
 #[cfg(feature = "uniffi")]
 #[derive(uniffi::Enum)]
