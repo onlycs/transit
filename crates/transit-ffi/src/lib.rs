@@ -1,5 +1,8 @@
+#![cfg_attr(feature = "nightly", feature(error_generic_member_access))]
+
 use std::{self, fmt, sync::Arc};
 
+use snafu::Snafu;
 use transit_async_io::RtAsyncIo;
 use transit_client::{TransitClient, TransitOptions};
 use transit_core::Route;
@@ -8,7 +11,7 @@ use transit_tls::{
     TransitTls,
     client::{Tls, TlsOptions},
 };
-use uniffi::{Enum, Object, Record};
+use uniffi::{Enum, Error, Object, Record};
 
 uniffi::setup_scaffolding!("transit_ffi");
 
@@ -62,31 +65,6 @@ impl fmt::Display for TransitError {
 }
 
 impl Transit {
-    #[uniffi::constructor]
-    pub async fn connect(opts: ConnectOptions) -> Result<Arc<Self>, TransitError> {
-        match opts.tls {
-            Some(with) => Ok(Arc::new(Self::Tls(
-                TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
-                    TlsOptions {
-                        inner: format!("{}{}", opts.address, opts.port).parse()?,
-                        server_name: with.server_name,
-                        tls: match with.kind {
-                            TlsKind::Bytes(b) => Tls::Bytes(b),
-                            TlsKind::Internal => Tls::Internal,
-                        },
-                    },
-                ))
-                .await?,
-            ))),
-            None => Ok(Arc::new(Self::NoTls(
-                TransitClient::connect(TransitOptions::new(
-                    format!("{}{}", opts.address, opts.port).parse()?,
-                ))
-                .await?,
-            ))),
-        }
-    }
-
     pub async fn route<R: Route>(&self, q: R::Request) -> Result<R::Response, TransitError> {
         match self {
             Self::Tls(tls) => tls.route::<R>(q).await.map_err(TransitError::from),
@@ -120,4 +98,65 @@ pub fn begin_logging(level: LogLevel) {
     let filter = Targets::new().with_default(level);
 
     tracing_subscriber::registry().with(filter).with(fmt).init();
+}
+
+#[derive(Snafu, Debug, Error)]
+pub enum ConnectError {
+    #[snafu(display("{display}"))]
+    Inner { display: String, report: String },
+}
+
+#[uniffi::export]
+impl ConnectError {
+    pub fn display(&self) -> String {
+        match self {
+            Self::Inner { display, .. } => display.clone(),
+        }
+    }
+
+    pub fn report(&self) -> String {
+        match self {
+            Self::Inner { report, .. } => report.clone(),
+        }
+    }
+}
+
+impl ConnectError {
+    fn new<T: fmt::Display + std::error::Error>(value: T) -> Self {
+        Self::Inner {
+            display: format!("{value}"),
+            report: snafu::Report::from_error(&value).to_string(),
+        }
+    }
+}
+
+#[uniffi::export]
+pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError> {
+    match opts.tls {
+        Some(with) => Ok(Arc::new(Transit::Tls(
+            TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
+                TlsOptions {
+                    inner: format!("{}{}", opts.address, opts.port)
+                        .parse()
+                        .map_err(ConnectError::new)?,
+                    server_name: with.server_name,
+                    tls: match with.kind {
+                        TlsKind::Bytes(b) => Tls::Bytes(b),
+                        TlsKind::Internal => Tls::Internal,
+                    },
+                },
+            ))
+            .await
+            .map_err(ConnectError::new)?,
+        ))),
+        None => Ok(Arc::new(Transit::NoTls(
+            TransitClient::connect(TransitOptions::new(
+                format!("{}{}", opts.address, opts.port)
+                    .parse()
+                    .map_err(ConnectError::new)?,
+            ))
+            .await
+            .map_err(ConnectError::new)?,
+        ))),
+    }
 }

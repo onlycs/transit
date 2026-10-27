@@ -3,6 +3,9 @@ name = "transit-ffi"
 version.workspace = true
 edition.workspace = true
 
+[features]
+nightly = ["snafu/unstable-provider-api"]
+
 [dependencies]
 snafu.workspace = true
 tracing.workspace = true
