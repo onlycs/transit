@@ -479,7 +479,7 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 pub fn report(&self) -> String {
                     match self {
                         Self::Protocol { source } => ::snafu::Report::from_error(&source).to_string(),
-                        Self::Transit { source } => ::snafu::Report::from_error(&source).to_string(),
+                        Self::Transit { source } => source.report.clone(),
                     }
                 }
             }
@@ -489,7 +489,7 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub async fn #function(t: &::transit_ffi::Transit, req: #request) -> Result<#response_t, #error_type>
             {
                 t.route::<#name>(req).await
-                    .map_err(|e| #error_type::Transit { source: ::std::sync::Arc::new(e) })
+                    .map_err(|e| #error_type::Transit { source: e })
                     .and_then(|r| r.map_err(|e| #error_type::Protocol { source: e }))
             }
 

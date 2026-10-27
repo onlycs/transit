@@ -5,9 +5,11 @@ edition.workspace = true
 
 [dependencies]
 snafu.workspace = true
+tracing.workspace = true
+tracing-subscriber = "0.3.23"
 transit-async-io.workspace = true
 transit-client.workspace = true
 transit-core.workspace = true
-transit-tcp.workspace = true
-transit-tls.workspace = true
+transit-tcp = { workspace = true, features = ["client"] }
+transit-tls = { workspace = true, features = ["client"] }
 uniffi.workspace = true

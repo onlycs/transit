@@ -18,4 +18,4 @@ pub use transit_macros::{constvar, error, error_shard, oneof, record, route};
 compile_error!("on wasm, enable `wasm` (JS host) and/or `futures-not-send`");
 
 #[cfg(feature = "uniffi")]
-uniffi::setup_scaffolding!("transit");
+uniffi::setup_scaffolding!("transit_core");

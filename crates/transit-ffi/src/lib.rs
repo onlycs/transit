@@ -10,7 +10,7 @@ use transit_tls::{
 };
 use uniffi::{Enum, Object, Record};
 
-uniffi::setup_scaffolding!("transit");
+uniffi::setup_scaffolding!("transit_ffi");
 
 #[derive(Enum)]
 pub enum TlsKind {
@@ -55,6 +55,12 @@ where
     }
 }
 
+impl fmt::Display for TransitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.display.fmt(f)
+    }
+}
+
 impl Transit {
     #[uniffi::constructor]
     pub async fn connect(opts: ConnectOptions) -> Result<Arc<Self>, TransitError> {
@@ -87,4 +93,31 @@ impl Transit {
             Self::NoTls(notls) => notls.route::<R>(q).await.map_err(TransitError::from),
         }
     }
+}
+
+#[derive(uniffi::Enum)]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+#[uniffi::export]
+pub fn begin_logging(level: LogLevel) {
+    use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
+
+    let level = match level {
+        LogLevel::Trace => tracing::Level::TRACE,
+        LogLevel::Debug => tracing::Level::DEBUG,
+        LogLevel::Info => tracing::Level::INFO,
+        LogLevel::Warn => tracing::Level::WARN,
+        LogLevel::Error => tracing::Level::ERROR,
+    };
+
+    let fmt = tracing_subscriber::fmt::layer().pretty();
+    let filter = Targets::new().with_default(level);
+
+    tracing_subscriber::registry().with(filter).with(fmt).init();
 }
