@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "nightly", feature(error_generic_member_access))]
+
 pub mod cancel;
 pub mod error;
 pub mod frame;
