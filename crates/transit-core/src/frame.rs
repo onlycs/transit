@@ -6,7 +6,7 @@ use tracing::trace;
 
 use crate::send::ArchSend;
 
-pub const NOT_FOUND_BIT: u8 = 0x80;
+pub const NOT_FOUND_BIT: u8 = 1 << 7;
 pub const MAX_FRAME_LEN: usize = 5 * 1024 * 1024; // 5 MiB is more than enough
 pub const MSGID_LEN: usize = 16;
 
@@ -95,9 +95,7 @@ pub fn pframe_encode(msgid: &MessageId, data: &[u8]) -> Result<Vec<u8>, FrameToo
 
 pub fn gen_msgid() -> Result<MessageId, getrandom::Error> {
     let mut msgid = [0u8; MSGID_LEN];
-
-    getrandom::fill(&mut msgid)?;
-    msgid[0] &= !NOT_FOUND_BIT;
+    getrandom::fill(&mut msgid[1..])?;
 
     Ok(msgid)
 }
