@@ -1,0 +1,32 @@
+[package]
+name = "transit-core"
+version.workspace = true
+edition.workspace = true
+
+[features]
+nightly = ["snafu/unstable-provider-api"]
+uniffi = ["dep:uniffi"]
+wasm = [
+    "getrandom/wasm_js",
+    "dep:wasm-bindgen",
+    "dep:tsify",
+    "dep:serde",
+    "futures-not-send",
+]
+futures-not-send = []
+
+[dependencies]
+bitcode.workspace = true
+event-listener = "5.4.2"
+futures.workspace = true
+getrandom = "0.4.3"
+hex.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+transit-macros.workspace = true
+
+uniffi = { workspace = true, optional = true }
+
+serde = { version = "1", features = ["derive"], optional = true }
+tsify = { version = "0.5.8", optional = true }
+wasm-bindgen = { version = "0.2.129", optional = true }

@@ -1,0 +1,9 @@
+[package]
+name = "transit-rt"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+futures.workspace = true
+tracing.workspace = true
+transit-core.workspace = true

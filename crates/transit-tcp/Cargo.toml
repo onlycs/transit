@@ -1,0 +1,19 @@
+[package]
+name = "transit-tcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-net = "2.0.0"
+futures.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+transit-client = { workspace = true, optional = true }
+transit-core.workspace = true
+transit-macros.workspace = true
+transit-rt.workspace = true
+transit-server = { workspace = true, optional = true }
+
+[features]
+server = ["dep:transit-server"]
+client = ["dep:transit-client"]

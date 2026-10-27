@@ -1,0 +1,13 @@
+[package]
+name = "transit-ffi"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+snafu.workspace = true
+transit-async-io.workspace = true
+transit-client.workspace = true
+transit-core.workspace = true
+transit-tcp.workspace = true
+transit-tls.workspace = true
+uniffi.workspace = true

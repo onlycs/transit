@@ -1,0 +1,19 @@
+[package]
+name = "transit-client"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bitcode.workspace = true
+futures.workspace = true
+getrandom = "0.4.3"
+hex.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+transit-core.workspace = true
+transit-macros.workspace = true
+transit-rt.workspace = true
+
+[features]
+nightly = ["snafu/unstable-provider-api"]
+wasm = ["getrandom/wasm_js", "transit-core/wasm"]

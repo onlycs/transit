@@ -1,0 +1,10 @@
+[package]
+name = "transit-async-io"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-executor = "1.14.0"
+async-io = "2.6.0"
+transit-core.workspace = true
+transit-rt.workspace = true

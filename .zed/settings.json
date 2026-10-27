@@ -7,12 +7,10 @@
         },
         "cargo": {
           "features": [
-            "client",
-            "server",
-            "tokio",
+            // "uniffi",
             // "async-io"
           ],
-          // "target": "wasm32-unknown-unknown",
+          "target": "wasm32-unknown-unknown",
         },
       },
     },

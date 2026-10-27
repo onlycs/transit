@@ -1,0 +1,13 @@
+[package]
+name = "transit-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+bitcode.workspace = true
+futures.workspace = true
+hex.workspace = true
+snafu.workspace = true
+tracing.workspace = true
+transit-core.workspace = true
+transit-rt.workspace = true

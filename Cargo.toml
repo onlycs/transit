@@ -1,66 +1,29 @@
 [workspace]
 resolver = "3"
-members = [".", "transit-macros"]
+members = ["crates/*"]
 exclude = ["examples/idp-proto"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
-[package]
-name = "transit-core"
-version.workspace = true
-edition.workspace = true
+[workspace.dependencies]
+transit-async-io = { path = "crates/transit-async-io" }
+transit-client = { path = "crates/transit-client" }
+transit-core = { path = "crates/transit-core" }
+transit-ffi = { path = "crates/transit-ffi" }
+transit-macros = { path = "crates/transit-macros" }
+transit-rt = { path = "crates/transit-rt" }
+transit-server = { path = "crates/transit-server" }
+transit-tcp = { path = "crates/transit-tcp" }
+transit-tls = { path = "crates/transit-tls" }
+transit-tokio = { path = "crates/transit-tokio" }
+transit-wasm = { path = "crates/transit-wasm" }
+transit-ws = { path = "crates/transit-ws" }
 
-[features]
-default = []
-uniffi = ["dep:uniffi", "client", "async-io", "dep:tracing-subscriber"]
-client = ["dep:rustls-platform-verifier", "dep:strum"]
-server = ["dep:futures-util", "dep:wtransport", "tokio"]
-async-io = ["dep:async-executor", "dep:async-io", "dep:async-lock", "dep:async-net", "dep:futures", "dep:futures-lite", "dep:futures-rustls"]
-tokio = ["dep:tokio", "dep:tokio-rustls"]
-nightly = ["snafu/unstable-provider-api"]
-
-[dependencies]
 bitcode = "0.6.9"
-futures-util = { version = "0.3.34", optional = true }
+futures = "0.3.34"
 hex = "0.4.3"
 snafu = "0.9.2"
-strum = { version = "0.28.0", features = ["derive"], optional = true }
-tokio-util = "0.7.19"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", optional = true }
-transit-macros = { version = "0.1.0", path = "./transit-macros" }
-
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-async-executor = { version = "1.14.0", optional = true }
-async-io = { version = "2.6.0", optional = true }
-async-lock = { version = "3.4.2", optional = true }
-async-net = { version = "2.0.0", optional = true }
-futures = { version = "0.3.34", optional = true }
-futures-lite = { version = "2.6.1", optional = true }
-futures-rustls = { version = "0.26.0", optional = true }
-
-rustls = "0.23.45"
-rustls-pemfile = "2.2.0"
-rustls-platform-verifier = { version = "0.7.1", optional = true }
-
-tokio = { version = "1.53.1", features = ["sync", "rt", "time", "net", "io-util", "macros"], optional = true }
-tokio-rustls = { version = "0.26.5", optional = true }
-
-uniffi = { version = "=0.31.0", optional = true, features = ["cli"] }
-getrandom = "0.4.3"
-wtransport = { version = "0.7.2", optional = true, default-features = false, features = ["aws-lc-rs"] }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-getrandom = { version = "0.4.3", features = ["wasm_js"] }
-gloo-timers = { version = "0.4.0", features = ["futures"] }
-js-sys = "0.3.105"
-serde = { version = "1.0", features = ["derive"] }
-serde-wasm-bindgen = { version = "0.6.5" }
-tokio = { version = "1.53.1", features = ["sync", "io-util", "macros"] }
-tsify = { version = "0.5.8", default-features = false, features = ["js"] }
-xwt-core = "0.10.0"
-xwt-web = "0.22.1"
-wasm-bindgen = { version = "0.2.128" }
-wasm-bindgen-futures = { version = "0.4.78" }
+uniffi = "0.32.2"
