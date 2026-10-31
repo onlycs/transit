@@ -1,4 +1,7 @@
-use crate::{InternalError, frame};
+use bitcode::{DecodeOwned, Encode};
+use transit_reflect::TypeHash;
+
+use crate::{InternalError, frame::RouteId};
 
 // replace with try_trait_v2 when stable
 pub trait FromInternal {
@@ -12,8 +15,16 @@ impl<T, E: From<InternalError>> FromInternal for Result<T, E> {
 }
 
 pub trait Route {
-    const ID: frame::RouteId;
+    const NAME: &'static str;
 
-    type Request: bitcode::Encode + bitcode::DecodeOwned + Send + Sync + 'static;
-    type Response: bitcode::Encode + bitcode::DecodeOwned + FromInternal + Send + Sync + 'static;
+    type Request: Encode + DecodeOwned + TypeHash + Send + Sync + 'static;
+    type Response: Encode + DecodeOwned + TypeHash + FromInternal + Send + Sync + 'static;
+}
+
+pub trait RouteExt: Route {
+    const ID: RouteId;
+}
+
+impl<R: Route> RouteExt for R {
+    const ID: RouteId = transit_reflect::route_id::<Self::Request, Self::Response>(Self::NAME);
 }

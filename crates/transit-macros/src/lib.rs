@@ -10,6 +10,18 @@ use syn::{
     token::{Brace, Colon},
 };
 
+#[cfg(feature = "unstable")]
+fn derive_type_signature() -> TokenStream {
+    quote! {}
+}
+
+#[cfg(not(feature = "unstable"))]
+fn derive_type_signature() -> TokenStream {
+    quote! {
+        #[derive(::type_signature::TypeSignature)]
+    }
+}
+
 fn ident_of(ty: &syn::Type) -> &syn::Ident {
     let syn::Type::Path(syn::TypePath { path, .. }) = &ty else {
         panic!("cant parse this type {ty:?}")
@@ -48,6 +60,8 @@ pub fn record(
         quote! { #[derive(Debug)] }
     };
 
+    let dts = derive_type_signature();
+
     let syn::Fields::Named(named) = &mut tokens.fields else {
         panic!("Expected named struct");
     };
@@ -66,6 +80,7 @@ pub fn record(
 
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, Clone)]
+        #dts
         #dbg
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Record))]
@@ -98,9 +113,12 @@ pub fn oneof(
         quote! { #[derive(Debug)] }
     };
 
+    let dts = derive_type_signature();
+
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, Clone)]
         #dbg
+        #dts
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::serde::Deserialize, ::tsify::Tsify))]
         #[cfg_attr(target_family = "wasm", #tagging)]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Enum))]
@@ -119,9 +137,11 @@ pub fn error_shard(
 
     let record = syn::parse_macro_input!(tokens1 as syn::ItemStruct);
     let ident = &record.ident;
+    let dts = derive_type_signature();
 
     quote! {
         #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
+        #dts
         #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::tsify::Tsify))]
         #[cfg_attr(feature = "uniffi", derive(::uniffi::Record))]
         #[snafu(visibility(pub))]
@@ -310,8 +330,11 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
         };
 
+        let dts = derive_type_signature();
+
         quote! {
             #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
+            #dts
             #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::tsify::Tsify))]
             #[cfg_attr(target_family = "wasm", serde(tag = "tag"))]
             #[cfg_attr(feature = "uniffi", derive(::uniffi::Error))]
@@ -427,7 +450,7 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
         quote! {
             pub struct #name;
             impl ::transit_core::Route for #name {
-                const ID: ::transit_core::frame::RouteId = ::xxhash_rust::const_xxh3::xxh3_64(stringify!(#name).as_bytes());
+                const NAME: &'static str = stringify!(#name);
                 type Request = #request;
                 type Response = Result<#response_t, #response_e>;
             }
@@ -440,13 +463,10 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             #[cfg(target_family = "wasm")]
-            #[derive(Debug, ::serde::Serialize)]
+            #[derive(Debug, ::serde::Serialize, ::tsify::Tsify)]
             pub enum #error_type {
                 Protocol { source: #response_e },
-                Transit {
-                    #[serde(serialize_with = "::transit_core::wbg_util::serialize_wrapper")]
-                    source: ::transit_wasm::TransitError
-                },
+                Transit { source: ::transit_wasm::TransitError },
             }
 
             #[cfg(any(feature = "uniffi", target_family = "wasm"))]

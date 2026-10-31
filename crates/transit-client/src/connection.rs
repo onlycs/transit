@@ -8,21 +8,23 @@ use futures::{
     },
     lock::Mutex,
 };
-use snafu::{OptionExt, ResultExt};
+use snafu::prelude::*;
 use tracing::trace;
 use transit_core::{
-    Route,
-    cancel::CancellationToken,
     frame::{self, FrameTooLong, MessageId, RouteId},
+    route::RouteExt,
 };
 use transit_macros::core_error;
+use transit_rt::cancel::CancellationToken;
+
+use crate::threads::ProtocolError;
 
 #[core_error]
 pub enum ConnectionError {
     #[snafu(display("{source}"), context(false))]
     FrameTooLong { source: FrameTooLong },
 
-    #[snafu(display("tX was dropped"))]
+    #[snafu(display("tx was dropped"))]
     Tx { source: Canceled },
 
     #[snafu(display("decode failed"))]
@@ -39,9 +41,18 @@ pub enum ConnectionError {
 
     #[snafu(display("unknown route {}", hex::encode(route.to_le_bytes())))]
     UnknownRoute { route: RouteId },
+
+    #[snafu(display("server did not handle route id check"))]
+    NoRouteIdCheck,
+
+    #[snafu(display("server handled route id check incorrectly"))]
+    InvalidRouteIdCheck { source: bitcode::Error },
+
+    #[snafu(display("protocol error"))]
+    Protocol { source: ProtocolError },
 }
 
-pub type Registry = HashMap<MessageId, oneshot::Sender<Option<Vec<u8>>>>;
+pub type Registry = HashMap<MessageId, oneshot::Sender<Result<Vec<u8>, ProtocolError>>>;
 
 pub(crate) struct Connection {
     pub(crate) write_tx: UnboundedSender<Vec<u8>>,
@@ -50,7 +61,7 @@ pub(crate) struct Connection {
 }
 
 impl Connection {
-    pub(crate) async fn route<R: Route>(
+    pub(crate) async fn route<R: RouteExt>(
         &self,
         q: R::Request,
         id: MessageId,
@@ -60,7 +71,7 @@ impl Connection {
         let (tx, rx) = oneshot::channel();
 
         trace!(
-            msgid = hex::encode(id),
+            msgid = hex::encode(id.to_bytes()),
             route = hex::encode(R::ID.to_le_bytes()),
             "Sending request"
         );
@@ -69,14 +80,12 @@ impl Connection {
             .closed
             .run_until_cancelled(async move {
                 self.registry.lock().await.insert(id, tx);
-
                 self.write_tx.clone().send(buf).await.context(SendSnafu)?;
-
                 rx.await.context(TxSnafu)
             })
             .await
-            .ok_or_else(|| ClosedSnafu.build())??
-            .context(UnknownRouteSnafu { route: R::ID })?;
+            .context(ClosedSnafu)??
+            .context(ProtocolSnafu)?;
 
         let res = bitcode::decode(&res).context(DecodeSnafu)?;
 

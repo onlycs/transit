@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [features]
+default = ["stable"]
 nightly = ["snafu/unstable-provider-api"]
+unstable = ["nightly", "transit-reflect/unstable", "transit-macros/unstable"]
 uniffi = ["dep:uniffi"]
 wasm = [
     "getrandom/wasm_js",
@@ -13,17 +15,21 @@ wasm = [
     "dep:serde",
     "futures-not-send",
 ]
-futures-not-send = []
+futures-not-send = ["transit-rt/futures-not-send"]
+stable = ["dep:type-signature", "transit-reflect/stable"]
 
 [dependencies]
+bilge = "0.5.0"
 bitcode.workspace = true
-event-listener = "5.4.2"
 futures.workspace = true
 getrandom = "0.4.3"
 hex.workspace = true
 snafu.workspace = true
 tracing.workspace = true
+transit-reflect = { workspace = true, default-features = false }
+transit-rt.workspace = true
 transit-macros.workspace = true
+type-signature = { version = "0.1.3", optional = true }
 
 uniffi = { workspace = true, optional = true }
 

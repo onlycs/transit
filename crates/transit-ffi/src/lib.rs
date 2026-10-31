@@ -132,13 +132,13 @@ impl ConnectError {
 
 #[uniffi::export]
 pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError> {
+    let addr = format!("{}:{}", opts.address, opts.port);
+
     match opts.tls {
         Some(with) => Ok(Arc::new(Transit::Tls(
             TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
                 TlsOptions {
-                    inner: format!("{}{}", opts.address, opts.port)
-                        .parse()
-                        .map_err(ConnectError::new)?,
+                    inner: addr,
                     server_name: with.server_name,
                     tls: match with.kind {
                         TlsKind::Bytes(b) => Tls::Bytes(b),
@@ -150,13 +150,9 @@ pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError>
             .map_err(ConnectError::new)?,
         ))),
         None => Ok(Arc::new(Transit::NoTls(
-            TransitClient::connect(TransitOptions::new(
-                format!("{}{}", opts.address, opts.port)
-                    .parse()
-                    .map_err(ConnectError::new)?,
-            ))
-            .await
-            .map_err(ConnectError::new)?,
+            TransitClient::connect(TransitOptions::new(addr))
+                .await
+                .map_err(ConnectError::new)?,
         ))),
     }
 }

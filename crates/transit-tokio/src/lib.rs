@@ -1,7 +1,6 @@
 use std::time::Duration;
 
-use transit_core::send::ArchSend;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 
 pub struct RtTokio;
 

@@ -4,13 +4,11 @@
       "initialization_options": {
         "check": {
           "command": "clippy",
+          "extraArgs": ["--exclude", "transit-wasm"],
         },
         "cargo": {
-          "features": [
-            // "uniffi",
-            // "async-io"
-          ],
-          "target": "wasm32-unknown-unknown",
+          "features": ["stable", "server"],
+          // "target": "wasm32-unknown-unknown",
         },
       },
     },

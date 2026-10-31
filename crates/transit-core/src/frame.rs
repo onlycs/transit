@@ -1,25 +1,23 @@
-use std::{io, mem};
+use std::{io, mem, time::Duration};
 
-use futures::{AsyncRead, AsyncReadExt};
-use snafu::{Location, ResultExt, Snafu};
-use tracing::trace;
+use bilge::arbitrary_int::{u6, u56};
+use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
+use snafu::{Location, prelude::*};
+use tracing::{debug, trace, warn};
+use transit_rt::{Runtime, cancel::CancellationToken, send::ArchSend};
 
-use crate::send::ArchSend;
-
-pub const NOT_FOUND_BIT: u8 = 1 << 7;
 pub const MAX_FRAME_LEN: usize = 5 * 1024 * 1024; // 5 MiB is more than enough
-pub const MSGID_LEN: usize = 16;
+pub const MESSAGE_ID_LEN: usize = mem::size_of::<MessageId>();
 
 pub type FrameLen = u32;
 pub type RouteId = u64;
-pub type MessageId = [u8; MSGID_LEN];
 
 // useful:
 // response (p): {frame len}{message id}{data bytes}
 // request (q): {frame len}{message id}{route id}{data bytes}
 
 #[derive(Snafu, Debug)]
-#[snafu(display("frame too long (refusing to allocate {:.2}MiB)", *bytes as f64 / 1000.0 / 1000.0))]
+#[snafu(display("frame too long (refusing to allocate {:.2}MiB)", *bytes as f64 / 1024.0 / 1024.0))]
 pub struct FrameTooLong {
     bytes: usize,
     #[snafu(implicit)]
@@ -39,11 +37,21 @@ pub enum FrameIOError {
         #[cfg_attr(feature = "nightly", snafu(provide))]
         location: Location,
     },
+
+    #[snafu(display("timeout while waiting for frame"))]
+    Timeout {
+        #[snafu(implicit)]
+        #[cfg_attr(feature = "nightly", snafu(provide))]
+        location: Location,
+    },
 }
 
-pub async fn next<R: AsyncRead + Unpin + ArchSend>(
+pub async fn next<Rt: Runtime, R: AsyncRead + Unpin + ArchSend>(
     reader: &mut R,
 ) -> Result<Vec<u8>, FrameIOError> {
+    const INITIAL_BODY_CAP: usize = 64 * 1024;
+    const FRAME_TIMEOUT: Duration = Duration::from_secs(30);
+
     let mut len_buf = [0u8; size_of::<FrameLen>()];
     reader.read_exact(&mut len_buf).await.context(ReadSnafu)?;
 
@@ -51,8 +59,14 @@ pub async fn next<R: AsyncRead + Unpin + ArchSend>(
     snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
 
     trace!(len, "Reading frame");
-    let mut msg_buf = vec![0u8; len];
-    reader.read_exact(&mut msg_buf).await.context(ReadSnafu)?;
+    let mut msg_buf = Vec::with_capacity(len.min(INITIAL_BODY_CAP));
+    transit_rt::timeout::<Rt, _>(
+        FRAME_TIMEOUT,
+        reader.take(len as u64).read_to_end(&mut msg_buf),
+    )
+    .await
+    .context(TimeoutSnafu)?
+    .context(ReadSnafu)?;
 
     Ok(msg_buf)
 }
@@ -60,20 +74,25 @@ pub async fn next<R: AsyncRead + Unpin + ArchSend>(
 pub fn qframe_encode(
     msgid: MessageId,
     route: RouteId,
-    data: Vec<u8>,
+    data: impl AsRef<[u8]>,
 ) -> Result<Vec<u8>, FrameTooLong> {
+    let data = data.as_ref();
     let len = msgid.len() + mem::size_of_val(&route) + data.len();
     snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
 
-    trace!(len, msgid = hex::encode(msgid), "Encoding request frame");
+    trace!(
+        len,
+        msgid = hex::encode(msgid.to_bytes()),
+        "Encoding request frame"
+    );
     let len_bytes = (len as FrameLen).to_le_bytes();
     let route_bytes = route.to_le_bytes();
     let mut buf = Vec::with_capacity(len + len_bytes.len());
 
     buf.extend(len_bytes);
-    buf.extend(&msgid);
+    buf.extend(msgid.to_bytes());
     buf.extend(&route_bytes);
-    buf.extend(&data);
+    buf.extend(data);
 
     Ok(buf)
 }
@@ -82,133 +101,125 @@ pub fn pframe_encode(msgid: &MessageId, data: &[u8]) -> Result<Vec<u8>, FrameToo
     let len = msgid.len() + data.len();
     snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
 
-    trace!(len, msgid = hex::encode(msgid), "Encoding response frame");
+    trace!(
+        len,
+        msgid = hex::encode(msgid.to_bytes()),
+        "Encoding response frame"
+    );
     let len_bytes = (len as FrameLen).to_le_bytes();
     let mut buf = Vec::with_capacity(len + len_bytes.len());
 
     buf.extend(len_bytes);
-    buf.extend(msgid);
+    buf.extend(msgid.to_bytes());
     buf.extend(data);
 
     Ok(buf)
 }
 
-pub fn gen_msgid() -> Result<MessageId, getrandom::Error> {
-    let mut msgid = [0u8; MSGID_LEN];
-    getrandom::fill(&mut msgid[1..])?;
-
-    Ok(msgid)
+#[bilge::bitsize(64)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, bilge::FromBits)]
+pub struct MessageId {
+    pub unknown_route: bool,
+    unstable_hashes: bool,
+    reserved: u6,
+    rest: u56,
 }
 
-// pub(super) async fn pframe_deocde_thread<
-//     R: Stream<Item = Result<Bytes, io::Error>> + Unpin + ArchSend,
-// >(
-//     mut reader: R,
-//     tx: Arc<Mutex<client::Registry>>,
-//     notify: CancellationToken,
-// ) {
-//     debug!("Frame decode thread started");
-//
-//     let job = async {
-//         loop {
-//             let frame = match frame_decode(&mut reader).await {
-//                 Ok(frame) => frame,
-//                 Err(err) => {
-//                     warn!(
-//                         "Error reading frame, closing connection. Full
-// report:\n{}",
-// snafu::Report::from_error(err).to_string()                     );
-//                     notify.cancel();
-//                     return;
-//                 }
-//             };
-//
-//             if frame.len() < MSGID_LEN {
-//                 warn!("Frame less than minimum size, ignoring");
-//                 continue;
-//             }
-//
-//             let mut tx = tx.lock().await;
-//             let mut msgid: MessageId =
-// frame[..MSGID_LEN].try_into().unwrap();             let res = match msgid[0]
-// & NOT_FOUND_BIT {                 0 => Some(frame[MSGID_LEN..].to_vec()),
-//                 _ => {
-//                     msgid[0] &= !NOT_FOUND_BIT;
-//                     debug!(msgid = hex::encode(msgid), "Route not found");
-//                     None
-//                 }
-//             };
-//
-//             let Some(tx) = tx.remove(&msgid) else {
-//                 warn!(msgid = hex::encode(msgid), "Unknown message id,
-// ignoring");                 continue;
-//             };
-//
-//             trace!(msgid = hex::encode(msgid), "Received response");
-//
-//             let Ok(_) = tx.send(res) else {
-//                 warn!(msgid = hex::encode(msgid), "rx dropped, ignoring");
-//                 continue;
-//             };
-//         }
-//     };
-//
-//     if notify.run_until_cancelled(job).await.is_none() {
-//         warn!("Frame decode thread cancelled");
-//     }
-// }
+impl MessageId {
+    pub fn generate() -> Result<MessageId, getrandom::Error> {
+        let mut bytes = [0u8; MESSAGE_ID_LEN];
+        getrandom::fill(&mut bytes[1..])?;
 
-// pub(super) async fn frame_encode_thread<W: AsyncWrite + Unpin + 'static>(
-//     mut writer: W,
-//     mut rx: UnboundedReceiver<Vec<u8>>,
-//     notify: CancellationToken,
-// ) {
-//     debug!("Frame encode thread started");
-//
-//     let job = async {
-//         loop {
-//             let frame = match rx.recv().await.cast_option() {
-//                 Some(frame) => frame,
-//                 None => {
-//                     trace!("rx dropped, closing connection");
-//                     notify.cancel();
-//                     return;
-//                 }
-//             };
-//
-//             if frame.len() < MSGID_LEN {
-//                 warn!("Frame less than minimum size, ignoring");
-//                 continue;
-//             }
-//
-//             #[cfg(feature = "client")]
-//             let timeout = arch::timeout;
-//             #[cfg(all(not(feature = "client"), feature = "server"))]
-//             let timeout = async |a, b| tokio::time::timeout(a, b).await.ok();
-//
-//             match timeout(Duration::from_secs(30),
-// writer.write_all(&frame)).await {                 Some(Ok(_)) => trace!(len =
-// frame.len(), "Wrote frame"),                 Some(Err(err)) => {
-//                     warn!(%err, "Error writing frame, closing connection");
-//                     notify.cancel();
-//                     return;
-//                 }
-//                 None => {
-//                     warn!("Timed out writing frame, closing connection");
-//                     notify.cancel();
-//                     return;
-//                 }
-//             }
-//
-//             if let Err(err) = writer.flush().await {
-//                 warn!(%err, "Error flushing writer, closing connection");
-//                 notify.cancel();
-//                 return;
-//             }
-//         }
-//     };
-//
-//     if notify.run_until_cancelled(job).await.is_none() {
-//         warn!("Frame encode thread cancelled");
-//     }
-// }
+        Ok(Self::new(
+            false,
+            cfg!(feature = "unstable"),
+            u56::extract_u64(u64::from_le_bytes(bytes), 0),
+        ))
+    }
+
+    pub const fn to_bytes(self) -> [u8; MESSAGE_ID_LEN] {
+        self.value.to_le_bytes()
+    }
+
+    pub fn has_equivalent_stability(&self) -> bool {
+        self.unstable_hashes() == cfg!(feature = "unstable")
+    }
+
+    pub fn set_stability(&mut self) {
+        self.set_unstable_hashes(cfg!(feature = "unstable"));
+    }
+
+    pub fn is_stable(&self) -> bool {
+        !self.unstable_hashes()
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub const fn len(self) -> usize {
+        mem::size_of::<Self>()
+    }
+}
+
+impl<'a> TryFrom<&'a [u8]> for MessageId {
+    type Error = <[u8; MESSAGE_ID_LEN] as TryFrom<&'a [u8]>>::Error;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        let bytes = <[u8; MESSAGE_ID_LEN] as TryFrom<&[u8]>>::try_from(value)?;
+        Ok(MessageId::from(u64::from_le_bytes(bytes)))
+    }
+}
+
+pub async fn encode_thread<
+    Rt: Runtime,
+    W: AsyncWrite + Unpin + ArchSend + 'static,
+    S: Stream<Item = Vec<u8>> + Unpin,
+>(
+    mut writer: W,
+    mut rx: S,
+    notify: CancellationToken,
+) {
+    debug!("Frame encode thread started");
+
+    let job = async {
+        loop {
+            let frame = match rx.next().await {
+                Some(frame) => frame,
+                None => {
+                    trace!("rx dropped, closing connection");
+                    notify.cancel();
+                    return;
+                }
+            };
+
+            if frame.len() < MESSAGE_ID_LEN + mem::size_of::<FrameLen>() {
+                warn!("Frame less than minimum size, ignoring");
+                continue;
+            }
+
+            match transit_rt::timeout::<Rt, _>(Duration::from_secs(30), writer.write_all(&frame))
+                .await
+            {
+                Some(Ok(_)) => trace!(len = frame.len(), "Wrote frame"),
+                Some(Err(err)) => {
+                    warn!(%err, "Error writing frame, closing connection");
+                    notify.cancel();
+                    return;
+                }
+                None => {
+                    warn!("Timed out writing frame, closing connection");
+                    notify.cancel();
+                    return;
+                }
+            }
+
+            if let Err(err) = writer.flush().await {
+                warn!(%err, "Error flushing writer, closing connection");
+                notify.cancel();
+                return;
+            }
+        }
+    };
+
+    if notify.run_until_cancelled(job).await.is_none() {
+        warn!("Frame encode thread cancelled");
+    }
+}

@@ -17,3 +17,10 @@ snafu.workspace = true
 tsify = "0.5.8"
 async_io_stream = "0.3.3"
 futures.workspace = true
+
+[features]
+nightly = [
+    "transit-client/nightly",
+    "transit-core/nightly",
+    "snafu/unstable-provider-api",
+]

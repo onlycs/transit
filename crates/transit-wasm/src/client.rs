@@ -6,8 +6,7 @@ use std::{
 
 use futures::{AsyncRead, AsyncWrite};
 use transit_client::transport::ClientTransport;
-use transit_core::send::ArchSend;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 use ws_stream_wasm::{WsErr, WsMeta};
 
 pub struct TransitWsBrowser;

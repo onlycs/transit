@@ -20,7 +20,7 @@ use async_tungstenite::{
     },
 };
 use futures::{AsyncRead, AsyncWrite, Stream, io::BufWriter, ready};
-use snafu::{OptionExt, ResultExt, Snafu};
+use snafu::prelude::*;
 use transit_rt::Runtime;
 use transit_server::transport::ServerTransport;
 
@@ -115,6 +115,7 @@ impl ServerTransport for TransitWs {
     type IO = WsStream<TcpStream>;
     type ListenOptions = WsListenOptions;
     type Listener = WsListener;
+    type Pending = (TcpStream, Arc<str>);
 
     async fn listen<Rt: Runtime>(opts: WsListenOptions) -> Result<WsListener, WsError> {
         let tcp = TcpListener::bind(opts.addr)
@@ -124,17 +125,21 @@ impl ServerTransport for TransitWs {
         Ok(WsListener { tcp, path })
     }
 
-    async fn accept<Rt: Runtime>(listener: &mut WsListener) -> Result<Self::IO, WsError> {
+    async fn accept<Rt: Runtime>(listener: &mut WsListener) -> Result<Self::Pending, WsError> {
         let (stream, _peer) = listener.tcp.accept().await.context(AcceptSnafu)?;
         let _ = stream.set_nodelay(true);
 
+        Ok((stream, Arc::clone(&listener.path)))
+    }
+
+    async fn handshake<Rt: Runtime>((stream, path): Self::Pending) -> Result<Self::IO, WsError> {
         let ws = transit_rt::timeout::<Rt, _>(
             Duration::from_secs(10),
             accept_hdr_async(
                 stream,
                 #[allow(clippy::result_large_err)]
                 move |req: &Request, resp| {
-                    if req.uri().path() == &*listener.path {
+                    if req.uri().path() == &*path {
                         Ok(resp)
                     } else {
                         let mut err = ErrorResponse::new(None);
