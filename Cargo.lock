@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "arbitrary-int"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ab387a0c4143b4fd3804e193946e78c8ab16cf26c5fde2048e4ac3d618c3b64"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -101,6 +107,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-lock"
+version = "3.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290f7f2596bd5b78a9fec8088ccd89180d7f9f55b94b0576823bbbdc72ee8311"
+dependencies = [
+ "event-listener",
+ "event-listener-strategy",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "async-net"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -186,6 +203,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba62675e8242a4c4e806d12f11d136e626e6c8361d6b829310732241652a178a"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "bilge"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce06e2f5d1e0c7905e6ccbfa5dca192471a5e821cb686d20816e63750795ffb2"
+dependencies = [
+ "arbitrary-int",
+ "bilge-impl",
+]
+
+[[package]]
+name = "bilge-impl"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2b578a200457fce52407a0a75734057c6f35c1f3237e2c200a102a0efa8d6b6"
+dependencies = [
+ "itertools",
+ "manyhow",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -841,6 +881,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "manyhow"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56cc5193bd3c1b7b88bfab32e4d5b0cec69398fb2aaa834baa67ef8da20fd65a"
+dependencies = [
+ "manyhow-macros",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "manyhow-macros"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c631eca129e6101489988e8cb516f02fb50dc4278592efcc4545ce15e2f016d5"
+dependencies = [
+ "proc-macro-utils",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -946,6 +1009,17 @@ dependencies = [
  "pin-project-lite",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "proc-macro-utils"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeaf08a13de400bc215877b5bdc088f241b12eb42f0a548d3390dc1c56bb7071"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "smallvec",
 ]
 
 [[package]]
@@ -1545,7 +1619,6 @@ version = "0.2.0"
 dependencies = [
  "async-executor",
  "async-io",
- "transit-core",
  "transit-rt",
 ]
 
@@ -1568,8 +1641,8 @@ dependencies = [
 name = "transit-core"
 version = "0.2.0"
 dependencies = [
+ "bilge",
  "bitcode",
- "event-listener",
  "futures",
  "getrandom 0.4.3",
  "hex",
@@ -1577,7 +1650,10 @@ dependencies = [
  "snafu",
  "tracing",
  "transit-macros",
+ "transit-reflect",
+ "transit-rt",
  "tsify",
+ "type-signature",
  "uniffi",
  "wasm-bindgen",
 ]
@@ -1609,18 +1685,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "transit-reflect"
+version = "0.2.0"
+dependencies = [
+ "type-signature",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "transit-rt"
 version = "0.2.0"
 dependencies = [
+ "event-listener",
  "futures",
  "tracing",
- "transit-core",
 ]
 
 [[package]]
 name = "transit-server"
 version = "0.2.0"
 dependencies = [
+ "async-lock",
  "bitcode",
  "futures",
  "hex",
@@ -1668,7 +1753,6 @@ name = "transit-tokio"
 version = "0.2.0"
 dependencies = [
  "tokio",
- "transit-core",
  "transit-rt",
 ]
 
@@ -1745,6 +1829,26 @@ dependencies = [
  "rand",
  "sha1",
  "thiserror",
+]
+
+[[package]]
+name = "type-signature"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0582c4d61873ecc32141f6d0dafe7118e9f77b81c11d4ffc20381d44cf706257"
+dependencies = [
+ "type-signature-derive",
+]
+
+[[package]]
+name = "type-signature-derive"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2a54d73cbf3e8e7322772c2f81e4429924d4f5bb0adce04a1cde0d8c645865d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2126,6 +2230,12 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
 ]
+
+[[package]]
+name = "xxhash-rust"
+version = "0.8.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "550a2b930b62486a393c52d5c3b84bff264b28aa437ed64694d31e93b1757af7"
 
 [[package]]
 name = "zeroize"

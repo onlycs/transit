@@ -6,9 +6,8 @@ use rustls_platform_verifier::BuilderVerifierExt;
 use snafu::{AsErrorSource, prelude::*};
 use tracing::debug;
 use transit_client::transport::ClientTransport;
-use transit_core::send::ArchSend;
 use transit_macros::core_error;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 
 use crate::TransitTls;
 

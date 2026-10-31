@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 
 use futures::{AsyncRead, AsyncWrite};
-use transit_core::send::ArchSend;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 
 pub trait ServerTransport: 'static {
     type IO: AsyncRead + AsyncWrite + Unpin + ArchSend + 'static;
-    type Error: snafu::AsErrorSource + Debug + 'static;
+    type Error: snafu::AsErrorSource + std::error::Error + Debug + 'static;
 
+    type Pending;
     type Listener;
     type ListenOptions;
 
@@ -17,5 +17,9 @@ pub trait ServerTransport: 'static {
 
     fn accept<Rt: Runtime>(
         listener: &mut Self::Listener,
+    ) -> impl Future<Output = Result<Self::Pending, Self::Error>> + ArchSend;
+
+    fn handshake<Rt: Runtime>(
+        pending: Self::Pending,
     ) -> impl Future<Output = Result<Self::IO, Self::Error>> + ArchSend;
 }

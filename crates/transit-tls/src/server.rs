@@ -6,11 +6,10 @@ use std::{
 
 use futures_rustls::{TlsAcceptor, server::TlsStream};
 use rustls::server::{VerifierBuilderError, WebPkiClientVerifier};
-use snafu::{AsErrorSource, ResultExt};
+use snafu::{AsErrorSource, prelude::*};
 use tracing::debug;
-use transit_core::send::ArchSend;
 use transit_macros::core_error;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 use transit_server::transport::ServerTransport;
 
 use crate::TransitTls;
@@ -23,7 +22,10 @@ pub enum TlsError<E: AsErrorSource> {
     #[snafu(display("accept failed"))]
     InnerAccept { source: E },
 
-    #[snafu(display("tLS handshake failure"))]
+    #[snafu(display("handshake failed"))]
+    InnerHandshake { source: E },
+
+    #[snafu(display("tls handshake failure"))]
     Tls { source: io::Error },
 
     #[snafu(display("failed to parse certificate chain"))]
@@ -60,7 +62,7 @@ pub struct TlsOptions<O> {
 }
 
 #[derive(Clone)]
-pub struct TlsListener<I> {
+pub struct WithAcceptor<I> {
     pub inner: I,
     pub acceptor: TlsAcceptor,
 }
@@ -72,7 +74,7 @@ async fn _listen<Rt: Runtime, I: ServerTransport>(
         private_key,
         client_ca,
     }: TlsOptions<I::ListenOptions>,
-) -> Result<TlsListener<I::Listener>, TlsError<I::Error>> {
+) -> Result<WithAcceptor<I::Listener>, TlsError<I::Error>> {
     let certs = rustls_pemfile::certs(&mut Cursor::new(&cert_chain))
         .collect::<Result<Vec<_>, _>>()
         .context(CertChainSnafu)?;
@@ -112,24 +114,40 @@ async fn _listen<Rt: Runtime, I: ServerTransport>(
 
     let acceptor = TlsAcceptor::from(Arc::new(config));
 
-    Ok(TlsListener {
+    Ok(WithAcceptor {
         inner: I::listen::<Rt>(inner).await.context(InnerListenSnafu)?,
         acceptor,
     })
 }
 
 async fn _accept<Rt: Runtime, I: ServerTransport>(
-    li: &mut TlsListener<I::Listener>,
-) -> Result<TlsStream<I::IO>, TlsError<I::Error>> {
-    let stream = I::accept::<Rt>(&mut li.inner)
+    li: &mut WithAcceptor<I::Listener>,
+) -> Result<WithAcceptor<I::Pending>, TlsError<I::Error>> {
+    let pend = I::accept::<Rt>(&mut li.inner)
         .await
         .context(InnerAcceptSnafu)?;
 
-    transit_rt::timeout::<Rt, _>(Duration::from_secs(10), li.acceptor.accept(stream))
-        .await
-        .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))
-        .flatten()
-        .context(TlsSnafu)
+    Ok(WithAcceptor {
+        inner: pend,
+        acceptor: li.acceptor.clone(),
+    })
+}
+
+async fn _handshake<Rt: Runtime, I: ServerTransport>(
+    pe: WithAcceptor<I::Pending>,
+) -> Result<TlsStream<I::IO>, TlsError<I::Error>> {
+    transit_rt::timeout::<Rt, _>(
+        Duration::from_secs(10),
+        pe.acceptor.accept(
+            I::handshake::<Rt>(pe.inner)
+                .await
+                .context(InnerHandshakeSnafu)?,
+        ),
+    )
+    .await
+    .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))
+    .flatten()
+    .context(TlsSnafu)
 }
 
 impl<I: ServerTransport> ServerTransport for TransitTls<I>
@@ -140,11 +158,12 @@ where
     type Error = TlsError<I::Error>;
     type IO = TlsStream<I::IO>;
     type ListenOptions = TlsOptions<I::ListenOptions>;
-    type Listener = TlsListener<I::Listener>;
+    type Listener = WithAcceptor<I::Listener>;
+    type Pending = WithAcceptor<I::Pending>;
 
     fn accept<Rt: Runtime>(
         listener: &mut Self::Listener,
-    ) -> impl Future<Output = Result<Self::IO, Self::Error>> + ArchSend {
+    ) -> impl Future<Output = Result<Self::Pending, Self::Error>> + ArchSend {
         _accept::<Rt, I>(listener)
     }
 
@@ -152,5 +171,11 @@ where
         opts: Self::ListenOptions,
     ) -> impl Future<Output = Result<Self::Listener, Self::Error>> + ArchSend {
         _listen::<Rt, I>(opts)
+    }
+
+    fn handshake<Rt: Runtime>(
+        pending: Self::Pending,
+    ) -> impl Future<Output = Result<Self::IO, Self::Error>> + ArchSend {
+        _handshake::<Rt, I>(pending)
     }
 }

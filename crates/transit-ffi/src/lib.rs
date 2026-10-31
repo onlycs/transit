@@ -136,7 +136,7 @@ pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError>
         Some(with) => Ok(Arc::new(Transit::Tls(
             TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
                 TlsOptions {
-                    inner: format!("{}{}", opts.address, opts.port)
+                    inner: format!("{}:{}", opts.address, opts.port)
                         .parse()
                         .map_err(ConnectError::new)?,
                     server_name: with.server_name,
@@ -151,7 +151,7 @@ pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError>
         ))),
         None => Ok(Arc::new(Transit::NoTls(
             TransitClient::connect(TransitOptions::new(
-                format!("{}{}", opts.address, opts.port)
+                format!("{}:{}", opts.address, opts.port)
                     .parse()
                     .map_err(ConnectError::new)?,
             ))

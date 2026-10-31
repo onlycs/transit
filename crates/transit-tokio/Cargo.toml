@@ -5,5 +5,4 @@ edition.workspace = true
 
 [dependencies]
 tokio = { version = "1.54.1", features = ["time", "rt"] }
-transit-core.workspace = true
 transit-rt.workspace = true

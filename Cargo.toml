@@ -11,15 +11,12 @@ edition = "2024"
 transit-async-io = { path = "crates/transit-async-io" }
 transit-client = { path = "crates/transit-client" }
 transit-core = { path = "crates/transit-core" }
-transit-ffi = { path = "crates/transit-ffi" }
 transit-macros = { path = "crates/transit-macros" }
+transit-reflect = { path = "crates/transit-reflect" }
 transit-rt = { path = "crates/transit-rt" }
 transit-server = { path = "crates/transit-server" }
 transit-tcp = { path = "crates/transit-tcp" }
 transit-tls = { path = "crates/transit-tls" }
-transit-tokio = { path = "crates/transit-tokio" }
-transit-wasm = { path = "crates/transit-wasm" }
-transit-ws = { path = "crates/transit-ws" }
 
 bitcode = "0.6.9"
 futures = "0.3.34"

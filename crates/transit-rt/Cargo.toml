@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+event-listener = "5.4.2"
 futures.workspace = true
 tracing.workspace = true
-transit-core.workspace = true
+
+[features]
+futures-not-send = []

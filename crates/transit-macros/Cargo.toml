@@ -12,3 +12,6 @@ itertools = "0.15.0"
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
 syn = { version = "3.0.6", features = ["extra-traits", "full"] }
+
+[features]
+unstable = []

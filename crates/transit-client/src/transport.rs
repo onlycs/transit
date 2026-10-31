@@ -1,8 +1,7 @@
 use std::fmt::Debug;
 
 use futures::{AsyncRead, AsyncWrite};
-use transit_core::send::ArchSend;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, send::ArchSend};
 
 pub trait ClientTransport: 'static {
     type IO: AsyncWrite + AsyncRead + Unpin + ArchSend + 'static;

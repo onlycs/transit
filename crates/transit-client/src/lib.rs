@@ -7,15 +7,14 @@ pub mod transport;
 use std::{marker, sync::Arc, time::Duration};
 
 use futures::{AsyncReadExt, channel::mpsc, lock::Mutex};
-use snafu::{AsErrorSource, ResultExt};
+use snafu::{AsErrorSource, prelude::*};
 use tracing::{debug, info};
 use transit_core::{
     Route,
-    cancel::CancellationToken,
-    frame::{self},
+    frame::{self, MessageId},
 };
 use transit_macros::core_error;
-use transit_rt::Runtime;
+use transit_rt::{Runtime, cancel::CancellationToken};
 
 use crate::{
     connection::{Connection, ConnectionError, Registry},
@@ -76,17 +75,13 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
         let (read, write) = Tr::connect::<Rt>(options.connect.clone()).await?.split();
         let (tx, rx) = mpsc::unbounded();
 
-        Rt::spawn(threads::pframe_decode_thread(
+        Rt::spawn(threads::pframe_decode_thread::<Rt, _>(
             read,
             Arc::clone(&registry),
             notify.clone(),
         ));
 
-        Rt::spawn(transit_rt::frame_encode_thread::<Rt, _>(
-            write,
-            rx,
-            notify.clone(),
-        ));
+        Rt::spawn(frame::encode_thread::<Rt, _, _>(write, rx, notify.clone()));
 
         debug!("Connection established");
 
@@ -102,18 +97,18 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
         q: R::Request,
     ) -> Result<R::Response, RouteError<Tr::ConnectError>> {
         let conn = self.connection().await.context(ConnectSnafu)?;
-        let id = frame::gen_msgid().context(MessageIdSnafu)?;
+        let id = MessageId::generate().context(MessageIdSnafu)?;
         let timeout = self.options.timeout;
 
         match transit_rt::timeout::<Rt, _>(timeout, conn.route::<R>(q, id)).await {
             Some(Ok(data)) => Ok(data),
             Some(Err(err)) => {
-                debug!(msgid = hex::encode(id), %err, "Request failed");
+                debug!(msgid = hex::encode(id.to_bytes()), %err, "Request failed");
                 conn.drop_tx(id).await;
                 Err(RouteError::from(err))
             }
             None => {
-                debug!(msgid = hex::encode(id), "Request timed out");
+                debug!(msgid = hex::encode(id.to_bytes()), "Request timed out");
                 conn.drop_tx(id).await;
                 Err(TimeoutSnafu.build())
             }
