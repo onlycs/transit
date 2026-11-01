@@ -3,7 +3,7 @@ pub mod rt;
 
 use std::{rc::Rc, time::Duration};
 
-use transit_client::{TransitClient, TransitOptions};
+use transit_client::{ClientOptions, TransitClient};
 use wasm_bindgen::prelude::*;
 
 use crate::{client::TransitWsBrowser, rt::RtWasm};
@@ -15,13 +15,10 @@ pub struct Transit(Rc<Client>);
 
 #[wasm_bindgen]
 impl Transit {
-    pub async fn connect(url: String, timeout_ms: u32) -> Result<Transit, JsError> {
-        let client = Client::connect(TransitOptions {
-            connect: url,
-            timeout: Duration::from_millis(timeout_ms as u64),
-        })
-        .await
-        .map_err(|e| JsError::new(&snafu::Report::from_error(&e).to_string()))?;
+    pub async fn connect(url: String) -> Result<Transit, JsError> {
+        let client = Client::connect(url, ClientOptions::default())
+            .await
+            .map_err(|e| JsError::new(&snafu::Report::from_error(&e).to_string()))?;
         Ok(Transit(Rc::new(client)))
     }
 }

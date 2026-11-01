@@ -1626,6 +1626,7 @@ dependencies = [
 name = "transit-client"
 version = "0.2.0"
 dependencies = [
+ "async-lock",
  "bitcode",
  "futures",
  "getrandom 0.4.3",
@@ -1780,7 +1781,6 @@ dependencies = [
 name = "transit-ws"
 version = "0.2.0"
 dependencies = [
- "async-net",
  "async-tungstenite",
  "futures",
  "snafu",

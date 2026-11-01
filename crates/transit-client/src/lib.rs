@@ -6,12 +6,13 @@ pub mod transport;
 
 use std::{marker, sync::Arc, time::Duration};
 
-use futures::{AsyncReadExt, channel::mpsc, lock::Mutex};
+use async_lock::Semaphore;
+use futures::{AsyncReadExt, StreamExt, channel::mpsc, lock::Mutex};
 use snafu::{AsErrorSource, prelude::*};
 use tracing::{debug, info};
 use transit_core::{
     Route,
-    frame::{self, MessageId},
+    frame::{self, FrameLen, MAX_ALLOWED_FRAME_LEN, MIN_FRAME_LEN, MessageId},
 };
 use transit_macros::core_error;
 use transit_rt::{Runtime, cancel::CancellationToken};
@@ -37,23 +38,26 @@ pub enum RouteError<E: AsErrorSource> {
 }
 
 #[derive(Clone)]
-pub struct TransitOptions<Tr: ClientTransport> {
-    pub connect: Tr::ConnectOptions,
+pub struct ClientOptions {
     pub timeout: Duration,
+    pub max_in_flight: usize,
+    pub max_response_len: usize,
 }
 
-impl<Tr: ClientTransport> TransitOptions<Tr> {
-    pub fn new(connect: Tr::ConnectOptions) -> Self {
+impl Default for ClientOptions {
+    fn default() -> Self {
         Self {
-            connect,
             timeout: Duration::from_secs(60),
+            max_in_flight: 64,
+            max_response_len: 5 * 1024 * 1024,
         }
     }
 }
 
 pub struct TransitClient<Rt: Runtime, Tr: ClientTransport> {
     connection: Mutex<Arc<Connection>>,
-    options: TransitOptions<Tr>,
+    connect_opts: Tr::ConnectOptions,
+    client_opts: ClientOptions,
     _rt: marker::PhantomData<Rt>,
 }
 
@@ -63,20 +67,42 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
 
         if conn.closed.is_cancelled() {
             info!("Connection closed, reconnecting");
-            *conn = Arc::new(Self::_connect(&self.options).await?);
+            *conn = Arc::new(Self::_connect(&self.connect_opts, &self.client_opts).await?);
         }
 
         Ok(Arc::clone(&conn))
     }
 
-    async fn _connect(options: &TransitOptions<Tr>) -> Result<Connection, Tr::ConnectError> {
+    async fn _connect(
+        connect: &Tr::ConnectOptions,
+        client: &ClientOptions,
+    ) -> Result<Connection, Tr::ConnectError> {
         let registry = Arc::new(Mutex::new(Registry::default()));
         let notify = CancellationToken::default();
-        let (read, write) = Tr::connect::<Rt>(options.connect.clone()).await?.split();
-        let (tx, rx) = mpsc::unbounded();
+        let (read, write) = Tr::connect::<Rt>(connect.clone()).await?.split();
+        let (tx, rx) = mpsc::unbounded::<Vec<u8>>();
+
+        let rx = Box::pin(rx.filter({
+            let registry = Arc::clone(&registry);
+
+            move |buf| {
+                let registry = Arc::clone(&registry);
+                let msgid = buf
+                    .get(size_of::<FrameLen>()..size_of::<FrameLen>() + frame::MESSAGE_ID_LEN)
+                    .and_then(|bytes| MessageId::try_from(bytes).ok());
+
+                async move {
+                    match msgid {
+                        Some(id) => registry.lock().await.contains_key(&id.tail()),
+                        None => true,
+                    }
+                }
+            }
+        }));
 
         Rt::spawn(threads::pframe_decode_thread::<Rt, _>(
             read,
+            client.max_response_len,
             Arc::clone(&registry),
             notify.clone(),
         ));
@@ -89,6 +115,7 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
             write_tx: tx,
             registry,
             closed: notify,
+            permits: Semaphore::new(client.max_in_flight),
         })
     }
 
@@ -98,7 +125,7 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
     ) -> Result<R::Response, RouteError<Tr::ConnectError>> {
         let conn = self.connection().await.context(ConnectSnafu)?;
         let id = MessageId::generate().context(MessageIdSnafu)?;
-        let timeout = self.options.timeout;
+        let timeout = self.client_opts.timeout;
 
         match transit_rt::timeout::<Rt, _>(timeout, conn.route::<R>(q, id)).await {
             Some(Ok(data)) => Ok(data),
@@ -115,10 +142,24 @@ impl<Rt: Runtime, Tr: ClientTransport> TransitClient<Rt, Tr> {
         }
     }
 
-    pub async fn connect(options: TransitOptions<Tr>) -> Result<Self, Tr::ConnectError> {
+    pub async fn connect(
+        connect: Tr::ConnectOptions,
+        client: ClientOptions,
+    ) -> Result<Self, Tr::ConnectError> {
+        assert!(
+            client.max_response_len >= MIN_FRAME_LEN,
+            "Max response len is too short, must be at least {MIN_FRAME_LEN}"
+        );
+
+        assert!(
+            client.max_response_len <= MAX_ALLOWED_FRAME_LEN,
+            "Max response len is too long, can be at most {MAX_ALLOWED_FRAME_LEN}"
+        );
+
         Ok(Self {
-            connection: Mutex::new(Arc::new(Self::_connect(&options).await?)),
-            options,
+            connection: Mutex::new(Arc::new(Self::_connect(&connect, &client).await?)),
+            connect_opts: connect,
+            client_opts: client,
             _rt: marker::PhantomData,
         })
     }

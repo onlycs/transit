@@ -31,6 +31,9 @@ pub enum TlsError<E: AsErrorSource> {
     #[snafu(display("missing private key"))]
     ClientKeyMissing,
 
+    #[snafu(display("invalid client auth"))]
+    ClientAuth { source: rustls::Error },
+
     #[snafu(display("platform verifier error"))]
     PlatformVerifier { source: rustls::Error },
 
@@ -113,7 +116,7 @@ async fn _connect<Rt: Runtime, I: ClientTransport>(
                     .context(ClientKeyParseSnafu)?
                     .context(ClientKeyMissingSnafu)?,
             )
-            .unwrap(),
+            .context(ClientAuthSnafu)?,
         None => config.with_no_client_auth(),
     };
 

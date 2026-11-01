@@ -32,6 +32,7 @@ impl ServerTransport for TransitTcp {
     ) -> impl Future<Output = Result<Self::IO, Self::Error>> + ArchSend {
         async move {
             let (stream, _) = listener.accept().await?;
+            stream.set_nodelay(true)?;
             Ok(stream)
         }
     }

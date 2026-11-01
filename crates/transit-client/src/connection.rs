@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use async_lock::Semaphore;
 use futures::{
     SinkExt,
     channel::{
@@ -11,53 +12,46 @@ use futures::{
 use snafu::prelude::*;
 use tracing::trace;
 use transit_core::{
-    frame::{self, FrameTooLong, MessageId, RouteId},
+    frame::{self, FrameTooLong, MessageError, MessageId, MessageIdTail},
     route::RouteExt,
 };
 use transit_macros::core_error;
 use transit_rt::cancel::CancellationToken;
 
-use crate::threads::ProtocolError;
+#[core_error]
+pub enum RequestError {
+    #[snafu(display("tx was dropped"))]
+    Tx { source: Canceled },
+
+    #[snafu(display("send failed"))]
+    Send { source: SendError },
+}
 
 #[core_error]
 pub enum ConnectionError {
     #[snafu(display("{source}"), context(false))]
     FrameTooLong { source: FrameTooLong },
 
-    #[snafu(display("tx was dropped"))]
-    Tx { source: Canceled },
-
     #[snafu(display("decode failed"))]
     Decode { source: bitcode::Error },
 
-    #[snafu(display("send failed"))]
-    Send { source: SendError },
-
-    #[snafu(display("request timeout"))]
-    Timeout,
-
-    #[snafu(display("request closed"))]
+    #[snafu(display("connection closed"))]
     Closed,
 
-    #[snafu(display("unknown route {}", hex::encode(route.to_le_bytes())))]
-    UnknownRoute { route: RouteId },
-
-    #[snafu(display("server did not handle route id check"))]
-    NoRouteIdCheck,
-
-    #[snafu(display("server handled route id check incorrectly"))]
-    InvalidRouteIdCheck { source: bitcode::Error },
+    #[snafu(display("request error"))]
+    Request { source: RequestError },
 
     #[snafu(display("protocol error"))]
-    Protocol { source: ProtocolError },
+    Protocol { source: MessageError },
 }
 
-pub type Registry = HashMap<MessageId, oneshot::Sender<Result<Vec<u8>, ProtocolError>>>;
+pub type Registry = HashMap<MessageIdTail, oneshot::Sender<Result<Vec<u8>, MessageError>>>;
 
 pub(crate) struct Connection {
     pub(crate) write_tx: UnboundedSender<Vec<u8>>,
     pub(crate) registry: Arc<Mutex<Registry>>,
     pub(crate) closed: CancellationToken,
+    pub(crate) permits: Semaphore,
 }
 
 impl Connection {
@@ -79,12 +73,15 @@ impl Connection {
         let res = self
             .closed
             .run_until_cancelled(async move {
-                self.registry.lock().await.insert(id, tx);
+                let _permit = self.permits.acquire().await;
+
+                self.registry.lock().await.insert(id.tail(), tx);
                 self.write_tx.clone().send(buf).await.context(SendSnafu)?;
                 rx.await.context(TxSnafu)
             })
             .await
-            .context(ClosedSnafu)??
+            .context(ClosedSnafu)?
+            .context(RequestSnafu)?
             .context(ProtocolSnafu)?;
 
         let res = bitcode::decode(&res).context(DecodeSnafu)?;
@@ -93,6 +90,6 @@ impl Connection {
     }
 
     pub(crate) async fn drop_tx(&self, id: MessageId) {
-        self.registry.lock().await.remove(&id);
+        self.registry.lock().await.remove(&id.tail());
     }
 }

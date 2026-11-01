@@ -4,7 +4,7 @@ use std::{self, fmt, sync::Arc};
 
 use snafu::Snafu;
 use transit_async_io::RtAsyncIo;
-use transit_client::{TransitClient, TransitOptions};
+use transit_client::{ClientOptions, TransitClient};
 use transit_core::Route;
 use transit_tcp::TransitTcp;
 use transit_tls::{
@@ -143,19 +143,20 @@ pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError>
 
     match opts.tls {
         Some(with) => Ok(Arc::new(Transit::Tls(
-            TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
+            TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(
                 TransitTlsOptions {
                     inner: addr,
                     server_name: with.server_name,
                     ca: with.ca,
                     client: with.client,
                 },
-            ))
+                ClientOptions::default(),
+            )
             .await
             .map_err(ConnectError::new)?,
         ))),
         None => Ok(Arc::new(Transit::NoTls(
-            TransitClient::connect(TransitOptions::new(addr))
+            TransitClient::connect(addr, ClientOptions::default())
                 .await
                 .map_err(ConnectError::new)?,
         ))),

@@ -135,16 +135,23 @@ async fn _accept<Rt: Runtime, I: ServerTransport>(
 
 async fn _handshake<Rt: Runtime, I: ServerTransport>(
     pe: WithAcceptor<I::Pending>,
-) -> Result<TlsStream<I::IO>, TlsError<I::Error>> {
-    transit_rt::timeout::<Rt, _>(
-        Duration::from_secs(10),
-        pe.acceptor.accept(
-            I::handshake::<Rt>(pe.inner)
-                .await
-                .context(InnerHandshakeSnafu)?,
-        ),
-    )
+) -> Result<TlsStream<I::IO>, TlsError<I::Error>>
+where
+    I::Error: ArchSend,
+{
+    transit_rt::timeout::<Rt, _>(Duration::from_secs(10), async move {
+        Ok::<_, TlsError<_>>(
+            pe.acceptor
+                .accept(
+                    I::handshake::<Rt>(pe.inner)
+                        .await
+                        .context(InnerHandshakeSnafu)?,
+                )
+                .await,
+        )
+    })
     .await
+    .transpose()?
     .ok_or_else(|| io::Error::from(io::ErrorKind::TimedOut))
     .flatten()
     .context(TlsSnafu)

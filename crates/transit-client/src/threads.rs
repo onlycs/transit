@@ -3,22 +3,13 @@ use std::sync::Arc;
 use futures::{AsyncRead, lock::Mutex};
 use tracing::{debug, trace, warn};
 use transit_core::frame::{self, *};
-use transit_macros::core_error;
 use transit_rt::{Runtime, cancel::CancellationToken, send::ArchSend};
 
 use crate::connection::Registry;
 
-#[core_error]
-pub enum ProtocolError {
-    #[snafu(display("unknown route"))]
-    UnknownRoute,
-
-    #[snafu(display("stability mismatch"))]
-    StabilityMismatch,
-}
-
 pub(super) async fn pframe_decode_thread<Rt: Runtime, R: AsyncRead + Unpin + ArchSend>(
     mut reader: R,
+    max_len: usize,
     tx: Arc<Mutex<Registry>>,
     notify: CancellationToken,
 ) {
@@ -26,7 +17,7 @@ pub(super) async fn pframe_decode_thread<Rt: Runtime, R: AsyncRead + Unpin + Arc
 
     let job = async {
         loop {
-            let frame = match frame::next::<Rt, _>(&mut reader).await {
+            let frame = match frame::next::<Rt, _>(&mut reader, max_len).await {
                 Ok(frame) => frame,
                 Err(err) => {
                     warn!(
@@ -44,29 +35,16 @@ pub(super) async fn pframe_decode_thread<Rt: Runtime, R: AsyncRead + Unpin + Arc
             }
 
             let mut tx = tx.lock().await;
-            let mut msgid = MessageId::try_from(&frame[..MESSAGE_ID_LEN]).unwrap();
-            let mut res = Ok(frame[MESSAGE_ID_LEN..].to_vec());
+            let msgid = MessageId::try_from(&frame[..MESSAGE_ID_LEN]).unwrap();
+            let res = msgid.check().map(|_| frame[MESSAGE_ID_LEN..].to_vec());
 
-            if !msgid.has_equivalent_stability() {
-                warn!(
-                    msgid = hex::encode(msgid.to_bytes()),
-                    needs_removal = msgid.is_stable(),
-                    "The server does not have the same route ID generator as you. Add/remove the `unstable` feature as needed."
-                );
-
-                msgid.set_stability();
-                res = Err(StabilityMismatchSnafu.build());
+            if msgid.goaway() && tx.is_empty() {
+                debug!("Server sent goaway, new requests will reconnect");
+                notify.cancel();
             }
 
-            if msgid.unknown_route() {
-                warn!(msgid = hex::encode(msgid.to_bytes()), "Route not found");
-
-                msgid.set_unknown_route(false);
-                res = Err(UnknownRouteSnafu.build());
-            }
-
-            let Some(tx) = tx.remove(&msgid) else {
-                warn!(
+            let Some(tx) = tx.remove(&msgid.tail()) else {
+                debug!(
                     msgid = hex::encode(msgid.to_bytes()),
                     "Unknown message id, ignoring"
                 );

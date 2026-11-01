@@ -1,13 +1,20 @@
 use std::{io, mem, time::Duration};
 
-use bilge::arbitrary_int::{u6, u56};
+use bilge::arbitrary_int::{u5, u56};
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, Stream, StreamExt};
 use snafu::{Location, prelude::*};
 use tracing::{debug, trace, warn};
+use transit_macros::core_error;
 use transit_rt::{Runtime, cancel::CancellationToken, send::ArchSend};
 
-pub const MAX_FRAME_LEN: usize = 5 * 1024 * 1024; // 5 MiB is more than enough
 pub const MESSAGE_ID_LEN: usize = mem::size_of::<MessageId>();
+
+pub const REQUEST_OVERHEAD: usize =
+    mem::size_of::<FrameLen>() + MESSAGE_ID_LEN + mem::size_of::<RouteId>();
+pub const RESPONSE_OVERHEAD: usize = mem::size_of::<FrameLen>() + MESSAGE_ID_LEN;
+
+pub const MIN_FRAME_LEN: usize = REQUEST_OVERHEAD;
+pub const MAX_ALLOWED_FRAME_LEN: usize = FrameLen::MAX as usize;
 
 pub type FrameLen = u32;
 pub type RouteId = u64;
@@ -17,7 +24,7 @@ pub type RouteId = u64;
 // request (q): {frame len}{message id}{route id}{data bytes}
 
 #[derive(Snafu, Debug)]
-#[snafu(display("frame too long (refusing to allocate {:.2}MiB)", *bytes as f64 / 1024.0 / 1024.0))]
+#[snafu(display("frame too long (refusing to deal with {:.2}MiB)", *bytes as f64 / 1024.0 / 1024.0))]
 pub struct FrameTooLong {
     bytes: usize,
     #[snafu(implicit)]
@@ -46,8 +53,21 @@ pub enum FrameIOError {
     },
 }
 
+#[core_error]
+pub enum MessageError {
+    #[snafu(display("unknown route"))]
+    UnknownRoute,
+
+    #[snafu(display("stability mismatch"))]
+    StabilityMismatch,
+
+    #[snafu(display("service unavailable (goaway)"))]
+    Goaway,
+}
+
 pub async fn next<Rt: Runtime, R: AsyncRead + Unpin + ArchSend>(
     reader: &mut R,
+    max_len: usize,
 ) -> Result<Vec<u8>, FrameIOError> {
     const INITIAL_BODY_CAP: usize = 64 * 1024;
     const FRAME_TIMEOUT: Duration = Duration::from_secs(30);
@@ -56,7 +76,7 @@ pub async fn next<Rt: Runtime, R: AsyncRead + Unpin + ArchSend>(
     reader.read_exact(&mut len_buf).await.context(ReadSnafu)?;
 
     let len = FrameLen::from_le_bytes(len_buf) as usize;
-    snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
+    snafu::ensure!(len <= max_len, FrameTooLongSnafu { bytes: len });
 
     trace!(len, "Reading frame");
     let mut msg_buf = Vec::with_capacity(len.min(INITIAL_BODY_CAP));
@@ -78,14 +98,15 @@ pub fn qframe_encode(
 ) -> Result<Vec<u8>, FrameTooLong> {
     let data = data.as_ref();
     let len = msgid.len() + mem::size_of_val(&route) + data.len();
-    snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
 
     trace!(
         len,
         msgid = hex::encode(msgid.to_bytes()),
         "Encoding request frame"
     );
-    let len_bytes = (len as FrameLen).to_le_bytes();
+    let len_bytes = FrameLen::try_from(len)
+        .map_err(|_| FrameTooLongSnafu { bytes: len }.build())?
+        .to_le_bytes();
     let route_bytes = route.to_le_bytes();
     let mut buf = Vec::with_capacity(len + len_bytes.len());
 
@@ -99,14 +120,15 @@ pub fn qframe_encode(
 
 pub fn pframe_encode(msgid: &MessageId, data: &[u8]) -> Result<Vec<u8>, FrameTooLong> {
     let len = msgid.len() + data.len();
-    snafu::ensure!(len <= MAX_FRAME_LEN, FrameTooLongSnafu { bytes: len });
 
     trace!(
         len,
         msgid = hex::encode(msgid.to_bytes()),
         "Encoding response frame"
     );
-    let len_bytes = (len as FrameLen).to_le_bytes();
+    let len_bytes = FrameLen::try_from(len)
+        .map_err(|_| FrameTooLongSnafu { bytes: len }.build())?
+        .to_le_bytes();
     let mut buf = Vec::with_capacity(len + len_bytes.len());
 
     buf.extend(len_bytes);
@@ -116,12 +138,16 @@ pub fn pframe_encode(msgid: &MessageId, data: &[u8]) -> Result<Vec<u8>, FrameToo
     Ok(buf)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MessageIdTail(u56);
+
 #[bilge::bitsize(64)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash, bilge::FromBits)]
+#[derive(Clone, Copy, bilge::FromBits)]
 pub struct MessageId {
     pub unknown_route: bool,
     unstable_hashes: bool,
-    reserved: u6,
+    pub goaway: bool,
+    reserved: u5,
     rest: u56,
 }
 
@@ -133,8 +159,13 @@ impl MessageId {
         Ok(Self::new(
             false,
             cfg!(feature = "unstable"),
+            false,
             u56::extract_u64(u64::from_le_bytes(bytes), 0),
         ))
+    }
+
+    pub fn empty_goaway() -> Self {
+        Self::new(false, cfg!(feature = "unstable"), true, u56::from_u8(0))
     }
 
     pub const fn to_bytes(self) -> [u8; MESSAGE_ID_LEN] {
@@ -156,6 +187,18 @@ impl MessageId {
     #[allow(clippy::len_without_is_empty)]
     pub const fn len(self) -> usize {
         mem::size_of::<Self>()
+    }
+
+    pub fn check(&self) -> Result<(), MessageError> {
+        snafu::ensure!(!self.unknown_route(), UnknownRouteSnafu);
+        snafu::ensure!(self.has_equivalent_stability(), StabilityMismatchSnafu);
+        snafu::ensure!(!self.goaway(), GoawaySnafu);
+
+        Ok(())
+    }
+
+    pub fn tail(&self) -> MessageIdTail {
+        MessageIdTail(self.rest())
     }
 }
 

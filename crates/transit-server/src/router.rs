@@ -5,7 +5,7 @@ use snafu::prelude::*;
 use tracing::{debug, error, info, trace, warn};
 use transit_core::{
     InternalError, InternalSnafu, Route,
-    frame::{self, MessageId, RouteId},
+    frame::{MessageId, RouteId},
     route::{FromInternal, RouteExt},
 };
 use transit_rt::send::ArchBoxFuture;
@@ -94,7 +94,12 @@ impl<S: Send + Sync + 'static> Router<S> {
     }
 
     /// No data if and only if the route is not found.
-    pub(crate) async fn run<'a>(&'a self, route_id: RouteId, data: &'a [u8]) -> Option<Vec<u8>> {
+    pub(crate) async fn run<'a>(
+        &'a self,
+        route_id: RouteId,
+        data: &'a [u8],
+        max_frame_len: usize,
+    ) -> Option<Vec<u8>> {
         let route_hex = hex::encode(route_id.to_le_bytes());
         let Some(RouteThunk {
             internal: internal_ser,
@@ -107,14 +112,18 @@ impl<S: Send + Sync + 'static> Router<S> {
 
         trace!(route = route_hex, len = data.len(), "Running route");
 
+        if data.len() > max_frame_len {
+            return Some(internal_ser(InternalError {
+                message: "request too large".to_string(),
+            }));
+        }
+
         let res = AssertUnwindSafe(runner(data, Arc::clone(&self.state)))
             .catch_unwind()
             .await;
 
         let bytes = match res {
-            Ok(Ok(bytes)) if bytes.len() + mem::size_of::<MessageId>() <= frame::MAX_FRAME_LEN => {
-                bytes
-            }
+            Ok(Ok(bytes)) if bytes.len() + mem::size_of::<MessageId>() <= max_frame_len => bytes,
             Ok(Ok(bytes)) => {
                 warn!(
                     route = route_hex,
