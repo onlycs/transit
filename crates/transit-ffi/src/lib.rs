@@ -9,29 +9,36 @@ use transit_core::Route;
 use transit_tcp::TransitTcp;
 use transit_tls::{
     TransitTls,
-    client::{Tls, TlsOptions},
+    client::{ClientAuth, RootCa, TlsOptions as TransitTlsOptions},
 };
-use uniffi::{Enum, Error, Object, Record};
+use uniffi::{Error, Object, Record};
 
 uniffi::setup_scaffolding!("transit_ffi");
 
-#[derive(Enum)]
-pub enum TlsKind {
+#[uniffi::remote(Enum)]
+pub enum RootCa {
     Internal,
     Bytes(Vec<u8>),
 }
 
+#[uniffi::remote(Record)]
+pub struct ClientAuth {
+    pub cert_chain: Vec<u8>,
+    pub key_der: Vec<u8>,
+}
+
 #[derive(Record)]
-pub struct ConnectTls {
+pub struct TlsOptions {
     pub server_name: String,
-    pub kind: TlsKind,
+    pub ca: RootCa,
+    pub client: Option<ClientAuth>,
 }
 
 #[derive(Record)]
 pub struct ConnectOptions {
     pub address: String,
     pub port: u16,
-    pub tls: Option<ConnectTls>,
+    pub tls: Option<TlsOptions>,
 }
 
 #[derive(Object)]
@@ -137,13 +144,11 @@ pub async fn connect(opts: ConnectOptions) -> Result<Arc<Transit>, ConnectError>
     match opts.tls {
         Some(with) => Ok(Arc::new(Transit::Tls(
             TransitClient::<RtAsyncIo, TransitTls<TransitTcp>>::connect(TransitOptions::new(
-                TlsOptions {
+                TransitTlsOptions {
                     inner: addr,
                     server_name: with.server_name,
-                    tls: match with.kind {
-                        TlsKind::Bytes(b) => Tls::Bytes(b),
-                        TlsKind::Internal => Tls::Internal,
-                    },
+                    ca: with.ca,
+                    client: with.client,
                 },
             ))
             .await
