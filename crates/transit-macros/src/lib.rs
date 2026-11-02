@@ -1,7 +1,7 @@
 use heck::ToSnakeCase;
 use itertools::Itertools;
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
     FieldModifiers, Token,
     parse::{Parse, ParseStream, Parser},
@@ -440,12 +440,17 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let Routes(routes) = syn::parse_macro_input!(tokens as Routes);
     let routes = routes.into_iter().map(|RouteDefinition { name, request, response_t, response_e }| {
         let function = format_ident!("route_{}", name.to_string().to_snake_case());
-        let result_type = format_ident!("{}Result", name);
         let error_type = format_ident!("{}FfiError", name);
-        let js_return_type = result_type.to_string();
+        let inner_type = format_ident!("{}ErrorInner", name);
+        let alias_type = format_ident!("__{}ErrorAlias", name);
 
         let req_ts = quote!(#request).to_string();
-        let promise_ts = format!("Promise<{js_return_type}>");
+        let response_alias = format_ident!("{}ResponseTs", name);
+        let promise_ts = format!(
+            "Promise<{{ Ok: {} }} | {{ Err: {} }}>",
+            response_alias,
+            error_type,
+        );
 
         quote! {
             pub struct #name;
@@ -463,18 +468,47 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             }
 
             #[cfg(target_family = "wasm")]
-            #[derive(Debug, ::serde::Serialize, ::tsify::Tsify)]
-            pub enum #error_type {
+            #[derive(Clone, Debug, ::serde::Serialize, ::tsify::Tsify)]
+            #[serde(tag = "tag")]
+            pub enum #inner_type {
                 Protocol { source: #response_e },
                 Transit { source: ::transit_wasm::TransitError },
             }
 
+            #[cfg(target_family = "wasm")]
+            #[derive(Clone, Debug)]
+            #[::wasm_bindgen::prelude::wasm_bindgen]
+            pub struct #error_type {
+                inner: #inner_type,
+            }
+
+            #[cfg(target_family = "wasm")]
+            #[::wasm_bindgen::prelude::wasm_bindgen]
+            impl #error_type {
+                #[wasm_bindgen(getter)]
+                pub fn inner(&self) -> Result<tsify::Ts<#inner_type>, ::wasm_bindgen::JsError> {
+                    use ::tsify::Tsify;
+                    Ok(self.inner.clone().into_ts()?)
+                }
+            }
+
+            #[cfg(feature = "uniffi")]
+            use #error_type as #alias_type;
+
+            #[cfg(target_family = "wasm")]
+            use #inner_type as #alias_type;
+
             #[cfg(any(feature = "uniffi", target_family = "wasm"))]
             impl ::std::fmt::Display for #error_type {
                 fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-                    match self {
-                        Self::Protocol { source } => ::std::fmt::Display::fmt(source, f),
-                        Self::Transit { source } => ::std::fmt::Display::fmt(source, f),
+                    #[cfg(feature = "uniffi")]
+                    let target = self;
+                    #[cfg(target_family = "wasm")]
+                    let target = &self.inner;
+
+                    match target {
+                        #alias_type::Protocol { source } => ::std::fmt::Display::fmt(source, f),
+                        #alias_type::Transit { source } => ::std::fmt::Display::fmt(source, f),
                     }
                 }
             }
@@ -482,24 +516,35 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #[cfg(any(feature = "uniffi", target_family = "wasm"))]
             impl ::std::error::Error for #error_type {
                 fn source(&self) -> Option<&(dyn ::std::error::Error + 'static)> {
-                    match self {
-                        Self::Protocol { source } => Some(source),
-                        Self::Transit { source } => None,
+                    #[cfg(feature = "uniffi")]
+                    let target = self;
+                    #[cfg(target_family = "wasm")]
+                    let target = &self.inner;
+
+                    match target {
+                        #alias_type::Protocol { source } => Some(source),
+                        #alias_type::Transit { source } => None,
                     }
                 }
             }
 
-            #[cfg(feature = "uniffi")]
-            #[::uniffi::export]
+            #[cfg(any(feature = "uniffi", target_family = "wasm"))]
+            #[cfg_attr(feature = "uniffi", ::uniffi::export)]
+            #[cfg_attr(target_family = "wasm", ::wasm_bindgen::prelude::wasm_bindgen)]
             impl #error_type {
                 pub fn display(&self) -> String {
                     format!("{self}")
                 }
 
                 pub fn report(&self) -> String {
-                    match self {
-                        Self::Protocol { source } => ::snafu::Report::from_error(&source).to_string(),
-                        Self::Transit { source } => source.report.clone(),
+                    #[cfg(feature = "uniffi")]
+                    let target = self;
+                    #[cfg(target_family = "wasm")]
+                    let target = &self.inner;
+
+                    match target {
+                        #alias_type::Protocol { source } => ::snafu::Report::from_error(&source).to_string(),
+                        #alias_type::Transit { source } => source.report.clone(),
                     }
                 }
             }
@@ -509,29 +554,59 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
             pub async fn #function(t: &::transit_ffi::Transit, req: #request) -> Result<#response_t, #error_type>
             {
                 t.route::<#name>(req).await
-                    .map_err(|e| #error_type::Transit { source: e })
-                    .and_then(|r| r.map_err(|e| #error_type::Protocol { source: e }))
+                    .map_err(|e| #alias_type::Transit { source: e })
+                    .and_then(|r| r.map_err(|e| #alias_type::Protocol { source: e }))
             }
 
             #[cfg(target_family = "wasm")]
             #[::tsify::declare]
-            pub type #result_type = Result<#response_t, #error_type>;
+            pub type #response_alias = #response_t;
 
             #[cfg(target_family = "wasm")]
             #[::wasm_bindgen::prelude::wasm_bindgen(unchecked_return_type = #promise_ts)]
             pub fn #function(
                 t: &::transit_wasm::Transit,
-                #[wasm_bindgen(unchecked_param_type = #req_ts)] req: ::wasm_bindgen::JsValue,
+                #[wasm_bindgen(unchecked_param_type = #req_ts)]
+                req: ::wasm_bindgen::JsValue,
             ) -> ::js_sys::Promise {
                 let client = t.client();
+
                 ::wasm_bindgen_futures::future_to_promise(async move {
                     let req: #request = ::serde_wasm_bindgen::from_value(req)?;
-                    let result: #result_type = client
+
+                    let result = client
                         .route::<#name>(req)
                         .await
-                        .map_err(|e| #error_type::Transit { source: ::transit_wasm::TransitError::from_err(&e) })
-                        .and_then(|r| r.map_err(|e| #error_type::Protocol { source: e }));
-                    Ok(::serde_wasm_bindgen::to_value(&result)?)
+                        .map_err(|e| #inner_type::Transit {
+                            source: ::transit_wasm::TransitError::from_err(&e),
+                        })
+                        .and_then(|r| r.map_err(|e| #inner_type::Protocol {
+                            source: e,
+                        }));
+
+                    let obj = ::js_sys::Object::new();
+
+                    match result {
+                        Ok(value) => {
+                            ::js_sys::Reflect::set(
+                                &obj,
+                                &"Ok".into(),
+                                &::serde_wasm_bindgen::to_value(&value)?,
+                            )?;
+                        }
+
+                        Err(inner) => {
+                            ::js_sys::Reflect::set(
+                                &obj,
+                                &"Err".into(),
+                                &::wasm_bindgen::JsValue::from(
+                                    #error_type { inner }
+                                ),
+                            )?;
+                        }
+                    }
+
+                    Ok(obj.into())
                 })
             }
         }
