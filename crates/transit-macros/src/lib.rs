@@ -1,7 +1,7 @@
 use heck::ToSnakeCase;
 use itertools::Itertools;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
 use syn::{
     FieldModifiers, Token,
     parse::{Parse, ParseStream, Parser},
@@ -102,9 +102,9 @@ pub fn oneof(
         .iter()
         .any(|variant| matches!(variant.fields, syn::Fields::Unnamed(_)))
     {
-        quote! { serde(tag = "tag", content = "value") }
+        quote! { serde(tag = "tag", content = "value", rename_all = "snake_case") }
     } else {
-        quote! { serde(tag = "tag") }
+        quote! { serde(tag = "tag", rename_all = "snake_case") }
     };
 
     let dbg = if ident.is_some_and(|i| i == "no_debug") {
@@ -336,7 +336,7 @@ pub fn error(tokens1: proc_macro::TokenStream) -> proc_macro::TokenStream {
             #[derive(::bitcode::Decode, ::bitcode::Encode, ::snafu::Snafu, Debug, Clone)]
             #dts
             #[cfg_attr(target_family = "wasm", derive(::serde::Serialize, ::tsify::Tsify))]
-            #[cfg_attr(target_family = "wasm", serde(tag = "tag"))]
+            #[cfg_attr(target_family = "wasm", serde(tag = "tag", rename_all = "snake_case"))]
             #[cfg_attr(feature = "uniffi", derive(::uniffi::Error))]
             #[snafu(visibility(pub))]
             #[snafu(module)]
@@ -469,7 +469,7 @@ pub fn route(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
             #[cfg(target_family = "wasm")]
             #[derive(Clone, Debug, ::serde::Serialize, ::tsify::Tsify)]
-            #[serde(tag = "tag")]
+            #[serde(tag = "tag", rename_all = "snake_case")]
             pub enum #inner_type {
                 Protocol { source: #response_e },
                 Transit { source: ::transit_wasm::TransitError },
