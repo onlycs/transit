@@ -13,7 +13,7 @@ use transit_tls::{
 };
 use uniffi::{Error, Object, Record};
 
-uniffi::setup_scaffolding!("transit_ffi");
+uniffi::setup_scaffolding!("transit");
 
 #[uniffi::remote(Enum)]
 pub enum RootCa {
