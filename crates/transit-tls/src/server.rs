@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     io::{self, Cursor},
     sync::Arc,
     time::Duration,
@@ -15,15 +16,9 @@ use transit_server::transport::ServerTransport;
 use crate::TransitTls;
 
 #[core_error]
-pub enum TlsError<E: AsErrorSource> {
-    #[snafu(display("listen failed"))]
-    InnerListen { source: E },
-
-    #[snafu(display("accept failed"))]
-    InnerAccept { source: E },
-
-    #[snafu(display("handshake failed"))]
-    InnerHandshake { source: E },
+pub enum TlsError<E: AsErrorSource + fmt::Display> {
+    #[snafu(display("{source}"))]
+    Inner { source: E },
 
     #[snafu(display("tls handshake failure"))]
     Tls { source: io::Error },
@@ -115,7 +110,7 @@ async fn _listen<Rt: Runtime, I: ServerTransport>(
     let acceptor = TlsAcceptor::from(Arc::new(config));
 
     Ok(WithAcceptor {
-        inner: I::listen::<Rt>(inner).await.context(InnerListenSnafu)?,
+        inner: I::listen::<Rt>(inner).await.context(InnerSnafu)?,
         acceptor,
     })
 }
@@ -123,9 +118,7 @@ async fn _listen<Rt: Runtime, I: ServerTransport>(
 async fn _accept<Rt: Runtime, I: ServerTransport>(
     li: &mut WithAcceptor<I::Listener>,
 ) -> Result<WithAcceptor<I::Pending>, TlsError<I::Error>> {
-    let pend = I::accept::<Rt>(&mut li.inner)
-        .await
-        .context(InnerAcceptSnafu)?;
+    let pend = I::accept::<Rt>(&mut li.inner).await.context(InnerSnafu)?;
 
     Ok(WithAcceptor {
         inner: pend,
@@ -142,11 +135,7 @@ where
     transit_rt::timeout::<Rt, _>(Duration::from_secs(10), async move {
         Ok::<_, TlsError<_>>(
             pe.acceptor
-                .accept(
-                    I::handshake::<Rt>(pe.inner)
-                        .await
-                        .context(InnerHandshakeSnafu)?,
-                )
+                .accept(I::handshake::<Rt>(pe.inner).await.context(InnerSnafu)?)
                 .await,
         )
     })

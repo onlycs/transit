@@ -1,7 +1,7 @@
 #![cfg_attr(feature = "nightly", feature(error_generic_member_access))]
 
 use std::{
-    fmt::Debug,
+    fmt::{self, Debug},
     io,
     pin::Pin,
     sync::Arc,
@@ -96,8 +96,8 @@ pub struct WsListener<I: ServerTransport> {
 }
 
 #[derive(Debug, Snafu)]
-pub enum WsError<I: snafu::AsErrorSource> {
-    #[snafu(display("connect failed"))]
+pub enum WsError<I: snafu::AsErrorSource + fmt::Display> {
+    #[snafu(display("{source}"))]
     Inner { source: I },
 
     #[snafu(display("websocket handshake failed"))]

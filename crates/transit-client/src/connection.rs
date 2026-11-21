@@ -32,16 +32,16 @@ pub enum ConnectionError {
     #[snafu(display("{source}"), context(false))]
     FrameTooLong { source: FrameTooLong },
 
-    #[snafu(display("decode failed"))]
+    #[snafu(display("failed to decode"))]
     Decode { source: bitcode::Error },
 
     #[snafu(display("connection closed"))]
     Closed,
 
-    #[snafu(display("request error"))]
+    #[snafu(display("error sending request"))]
     Request { source: RequestError },
 
-    #[snafu(display("protocol error"))]
+    #[snafu(display("{source}"))]
     Protocol { source: MessageError },
 }
 
